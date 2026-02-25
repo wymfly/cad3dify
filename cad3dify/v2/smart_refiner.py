@@ -13,6 +13,11 @@ from loguru import logger
 from ..chat_models import ChatModelParameters
 from ..image import ImageData
 from ..knowledge.part_types import DrawingSpec
+from .validators import (
+    _get_bbox_from_step,
+    validate_bounding_box,
+    validate_code_params,
+)
 
 # ---- 阶段 4a: VL 模型分析差异 ----
 
@@ -47,6 +52,12 @@ _COMPARE_PROMPT = """\
 ```
 
 如果渲染结果与图纸完全一致，输出 "PASS"。
+
+## 判断标准（严格遵守）
+- 如果所有尺寸在 5% 误差范围内，且结构正确（阶梯数、孔数一致），输出 "PASS"
+- 只报告**明确的结构性差异**，如：缺少阶梯层、孔数不对、整体形状错误
+- 不要报告：渲染角度差异、光照/阴影效果、微小的圆角差异、表面纹理
+- 不确定的问题不要报告，宁可漏报不可误报
 """
 
 # ---- 阶段 4b: Coder 模型修改代码 ----
@@ -67,6 +78,14 @@ _FIX_CODE_PROMPT = """\
 2. 确保所有尺寸参数化
 3. 保留 export 语句
 4. 代码用 markdown 代码块包裹
+
+## 绝对禁止（违反则代码无效）
+1. 不要引入代码中未使用的新 API（如 addAnnotation、addText、show_object）
+2. 不要修改 export 语句
+3. 不要添加可视化/渲染/标注代码
+4. 不要删除已有的 try/except 安全包裹
+5. 只修改数值参数和几何操作，不要重构代码结构
+6. 修改后的代码必须能独立运行并导出 STEP 文件
 
 请输出修正后的完整代码：
 """
@@ -174,7 +193,7 @@ class SmartFixChain(SequentialChain):
 
 
 class SmartRefiner:
-    """增强版改进器：VL 对比 + Coder 修正"""
+    """增强版改进器：三层防线（静态校验 → 包围盒 → VL 对比）+ Coder 修正"""
 
     def __init__(self):
         self.compare_chain = SmartCompareChain()
@@ -186,12 +205,70 @@ class SmartRefiner:
         original_image: ImageData,
         rendered_image: ImageData,
         drawing_spec: DrawingSpec,
+        step_filepath: str | None = None,
     ) -> str | None:
         """
-        对比原图和渲染图，如有差异则修正代码。
+        三层防线改进流程：
+        1. 静态参数校验 — 拦截明显参数偏差（不走 VL）
+        2. 包围盒校验 — 确认几何尺寸（不走 VL）
+        3. VL 对比 — 仅在前两层通过后触发
+
         返回修正后的代码，如果 PASS 则返回 None。
         """
-        # 4a: VL 对比
+        # ---- Layer 1: 静态参数校验 ----
+        param_result = validate_code_params(code, drawing_spec)
+        if not param_result.passed:
+            logger.warning(
+                f"Smart refiner Layer 1: static validation failed — "
+                f"{len(param_result.mismatches)} mismatches"
+            )
+            for m in param_result.mismatches:
+                logger.warning(f"  - {m}")
+
+            fix_instructions = (
+                "参数校验发现以下问题，请修正数值参数：\n"
+                + "\n".join(f"- {m}" for m in param_result.mismatches)
+            )
+            result = self.fix_chain.invoke({
+                "code": code,
+                "fix_instructions": fix_instructions,
+            })["result"]
+            return result
+
+        logger.info("Smart refiner Layer 1: static validation PASSED")
+
+        # ---- Layer 2: 包围盒校验 ----
+        if step_filepath:
+            bbox = _get_bbox_from_step(step_filepath)
+            if bbox:
+                bbox_result = validate_bounding_box(
+                    bbox, drawing_spec.overall_dimensions
+                )
+                if not bbox_result.passed:
+                    logger.warning(
+                        f"Smart refiner Layer 2: bbox validation failed — "
+                        f"{bbox_result.detail}"
+                    )
+                    fix_instructions = (
+                        f"包围盒校验失败：{bbox_result.detail}\n"
+                        f"实际包围盒: X={bbox[0]:.1f}, Y={bbox[1]:.1f}, Z={bbox[2]:.1f}\n"
+                        f"预期尺寸: {drawing_spec.overall_dimensions}\n"
+                        f"请检查并修正相关尺寸参数。"
+                    )
+                    result = self.fix_chain.invoke({
+                        "code": code,
+                        "fix_instructions": fix_instructions,
+                    })["result"]
+                    return result
+
+                logger.info("Smart refiner Layer 2: bbox validation PASSED")
+            else:
+                logger.warning("Smart refiner Layer 2: could not read STEP bbox, skipping")
+        else:
+            logger.info("Smart refiner Layer 2: no step_filepath, skipping bbox check")
+
+        # ---- Layer 3: VL 对比（仅在前两层通过后） ----
+        logger.info("Smart refiner Layer 3: running VL comparison...")
         comparison = self.compare_chain.invoke({
             "drawing_spec": drawing_spec.to_prompt_text(),
             "code": code,
@@ -202,12 +279,12 @@ class SmartRefiner:
         })["result"]
 
         if comparison is None:
-            logger.info("Smart refiner: PASS — rendering matches drawing")
+            logger.info("Smart refiner Layer 3: PASS — rendering matches drawing")
             return None
 
-        logger.info(f"Smart refiner: found differences:\n{comparison}")
+        logger.info(f"Smart refiner Layer 3: found differences:\n{comparison}")
 
-        # 4b: Coder 修正
+        # Coder 修正
         result = self.fix_chain.invoke({
             "code": code,
             "fix_instructions": comparison,
