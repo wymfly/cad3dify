@@ -15,7 +15,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
-MODEL_TYPE = Literal["gpt", "claude", "gemini", "llama"]
+MODEL_TYPE = Literal["gpt", "claude", "gemini", "llama", "qwen", "qwen-vl", "qwen-coder"]
 PROVIDER_TYPE = Literal["openai", "anthropic", "google", "vertex_ai"]
 
 
@@ -64,16 +64,39 @@ class ChatModelParameters(BaseModel):
                 model_name="meta/llama-3.2-90b-vision-instruct-maas",
                 temperature=temperature,
             ),
+            "qwen": cls(
+                provider="openai",
+                model_name="qwen-vl-max",
+                temperature=temperature,
+                max_tokens=32000,
+            ),
+            "qwen-vl": cls(
+                provider="openai",
+                model_name="qwen-vl-max",
+                temperature=0.1,
+                max_tokens=8000,
+            ),
+            "qwen-coder": cls(
+                provider="openai",
+                model_name="qwen-coder-plus",
+                temperature=0.3,
+                max_tokens=32000,
+            ),
         }
         return model_type_to_parameters.get(model_type, cls.default())
 
     def create_chat_model(self) -> BaseChatModel:
         if self.provider == "openai":
-            return ChatOpenAI(
+            kwargs = dict(
                 model=self.model_name,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
             )
+            # Qwen OpenAI 兼容模式: 使用 DashScope 端点
+            base_url = os.environ.get("OPENAI_API_BASE") or os.environ.get("OPENAI_BASE_URL")
+            if base_url:
+                kwargs["base_url"] = base_url
+            return ChatOpenAI(**kwargs)
         elif self.provider == "anthropic":
             return ChatAnthropic(
                 model=self.model_name,
