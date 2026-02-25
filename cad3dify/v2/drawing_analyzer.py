@@ -18,6 +18,18 @@ from ..knowledge.part_types import DrawingSpec, PartType
 _DRAWING_ANALYSIS_PROMPT = """\
 你是一位经验丰富的机械工程师，擅长阅读工程图纸。请仔细分析附带的 2D 工程图纸，提取所有几何信息。
 
+## 分析步骤（必须严格按顺序执行）
+请先在 ```reasoning``` 代码块中逐步分析，然后再输出 JSON：
+
+1. **视图识别**：列出图纸包含的视图类型（正视图、俯视图、剖视图等）
+2. **尺寸提取**：从每个视图中提取所有标注尺寸，注意区分直径和半径
+3. **结构分析**：识别零件的层级结构（几层阶梯、每层的直径和高度）
+4. **特征识别**：孔阵列（数量、直径、PCD）、圆角、倒角、键槽等
+5. **零件分类**：根据上述分析判断零件类型
+6. **建模方式**：确定最佳的 CadQuery 构建方法
+
+分析完成后，输出 JSON。
+
 ## 任务
 1. 识别零件类型（从以下选项中选择）：
    - rotational: 旋转体（圆柱、圆锥）
@@ -77,14 +89,28 @@ _DRAWING_ANALYSIS_PROMPT = """\
 
 
 def _parse_drawing_spec(input: dict) -> dict:
-    """从 LLM 输出中提取 JSON 并解析为 DrawingSpec"""
+    """从 LLM 输出中提取 reasoning 和 JSON，解析为 DrawingSpec"""
     text = input["text"]
-    # 尝试从 markdown 代码块中提取 JSON
-    match = re.search(r"```(?:json)?\s*\n(.*?)\n```", text, re.DOTALL)
-    if match:
-        json_str = match.group(1).strip()
-    else:
-        # 尝试直接解析整个文本
+
+    # 提取 CoT reasoning（如果有）
+    reasoning_match = re.search(r"```reasoning\s*\n(.*?)\n```", text, re.DOTALL)
+    reasoning = reasoning_match.group(1).strip() if reasoning_match else None
+    if reasoning:
+        logger.info(f"CoT reasoning ({len(reasoning)} chars):\n{reasoning}")
+
+    # 提取 JSON — 优先匹配 ```json 块，跳过 reasoning 块
+    json_str = None
+    for m in re.finditer(r"```(\w*)\s*\n(.*?)\n```", text, re.DOTALL):
+        lang = m.group(1).lower()
+        if lang in ("json", ""):
+            # 尝试解析，确认是 JSON 而非 reasoning
+            candidate = m.group(2).strip()
+            if candidate.startswith("{"):
+                json_str = candidate
+                break
+
+    if json_str is None:
+        # 回退：尝试直接解析整个文本
         json_str = text.strip()
 
     try:
@@ -95,10 +121,10 @@ def _parse_drawing_spec(input: dict) -> dict:
             data["part_type"] = "general"
         spec = DrawingSpec(**data)
         logger.info(f"Drawing analysis result: part_type={spec.part_type}, dims={spec.overall_dimensions}")
-        return {"result": spec}
+        return {"result": spec, "reasoning": reasoning}
     except (json.JSONDecodeError, Exception) as e:
         logger.error(f"Failed to parse DrawingSpec: {e}\nRaw text: {text}")
-        return {"result": None}
+        return {"result": None, "reasoning": reasoning}
 
 
 class DrawingAnalyzerChain(SequentialChain):
@@ -131,13 +157,13 @@ class DrawingAnalyzerChain(SequentialChain):
                 LLMChain(prompt=prompt, llm=llm),
                 TransformChain(
                     input_variables=["text"],
-                    output_variables=["result"],
+                    output_variables=["result", "reasoning"],
                     transform=_parse_drawing_spec,
                     atransform=None,
                 ),
             ],
             input_variables=["image_type", "image_data"],
-            output_variables=["result"],
+            output_variables=["result", "reasoning"],
             verbose=True,
         )
 
