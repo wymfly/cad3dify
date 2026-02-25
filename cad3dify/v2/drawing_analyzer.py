@@ -46,26 +46,26 @@ _DRAWING_ANALYSIS_PROMPT = """\
 严格输出以下 JSON 格式，不要输出其他内容：
 
 ```json
-{
+{{
   "part_type": "rotational_stepped",
   "description": "零件的文字描述",
   "views": ["front_section", "top"],
-  "overall_dimensions": {"max_diameter": 100, "total_height": 30},
-  "base_body": {
+  "overall_dimensions": {{"max_diameter": 100, "total_height": 30}},
+  "base_body": {{
     "method": "revolve",
     "profile": [
-      {"diameter": 100, "height": 10, "label": "base_flange"},
-      {"diameter": 40, "height": 10, "label": "middle_boss"}
+      {{"diameter": 100, "height": 10, "label": "base_flange"}},
+      {{"diameter": 40, "height": 10, "label": "middle_boss"}}
     ],
-    "bore": {"diameter": 10, "through": true}
-  },
+    "bore": {{"diameter": 10, "through": true}}
+  }},
   "features": [
-    {"type": "hole_pattern", "pattern": "circular", "count": 6, "diameter": 10, "pcd": 70, "on_layer": "base_flange"},
-    {"type": "fillet", "radius": 3, "locations": ["step_transitions"]},
-    {"type": "chamfer", "size": 1, "locations": ["top_edge"]}
+    {{"type": "hole_pattern", "pattern": "circular", "count": 6, "diameter": 10, "pcd": 70, "on_layer": "base_flange"}},
+    {{"type": "fillet", "radius": 3, "locations": ["step_transitions"]}},
+    {{"type": "chamfer", "size": 1, "locations": ["top_edge"]}}
   ],
   "notes": ["表面粗糙度 Ra 3.2"]
-}
+}}
 ```
 
 ## 重要提示
