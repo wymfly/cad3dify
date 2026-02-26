@@ -1,0 +1,20 @@
+{
+  "case_id": "case_004_flange",
+  "drawing_path": "case_004_flange.png",
+  "expected_spec": {
+    "part_type": "rotational",
+    "description": "法兰盘（带螺栓孔阵列）",
+    "base_body": {
+      "method": "revolve",
+      "profile": [{"diameter": 120, "height": 15}],
+      "bore": {"diameter": 40, "through": true}
+    },
+    "features": [
+      {"type": "hole_pattern", "pattern": "circular", "count": 6, "diameter": 10, "pcd": 90}
+    ]
+  },
+  "expected_bbox": {
+    "xlen": 120, "ylen": 15, "zlen": 120,
+    "tolerance_pct": 10
+  }
+}

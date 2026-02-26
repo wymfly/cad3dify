@@ -1,0 +1,16 @@
+{
+  "case_id": "case_003_plate",
+  "drawing_path": "case_003_plate.png",
+  "expected_spec": {
+    "part_type": "plate",
+    "description": "矩形板件",
+    "base_body": {
+      "method": "extrude",
+      "length": 200, "width": 100, "height": 10
+    }
+  },
+  "expected_bbox": {
+    "xlen": 200, "ylen": 10, "zlen": 100,
+    "tolerance_pct": 10
+  }
+}

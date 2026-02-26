@@ -1,0 +1,19 @@
+{
+  "case_id": "case_005_bracket",
+  "drawing_path": "case_005_bracket.png",
+  "expected_spec": {
+    "part_type": "bracket",
+    "description": "L 型支架",
+    "base_body": {
+      "method": "extrude",
+      "length": 150, "width": 80, "height": 5
+    },
+    "features": [
+      {"type": "hole", "diameter": 8, "count": 4}
+    ]
+  },
+  "expected_bbox": {
+    "xlen": 150, "ylen": 80, "zlen": 80,
+    "tolerance_pct": 15
+  }
+}

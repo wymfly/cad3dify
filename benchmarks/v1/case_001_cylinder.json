@@ -1,0 +1,16 @@
+{
+  "case_id": "case_001_cylinder",
+  "drawing_path": "case_001_cylinder.png",
+  "expected_spec": {
+    "part_type": "rotational",
+    "description": "简单圆柱体",
+    "base_body": {
+      "method": "revolve",
+      "profile": [{"diameter": 50, "height": 80}]
+    }
+  },
+  "expected_bbox": {
+    "xlen": 50, "ylen": 80, "zlen": 50,
+    "tolerance_pct": 10
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "case_id": "case_002_stepped_shaft",
+  "drawing_path": "case_002_stepped_shaft.png",
+  "expected_spec": {
+    "part_type": "rotational_stepped",
+    "description": "三段阶梯轴",
+    "base_body": {
+      "method": "revolve",
+      "profile": [
+        {"diameter": 60, "height": 30},
+        {"diameter": 40, "height": 50},
+        {"diameter": 30, "height": 20}
+      ]
+    }
+  },
+  "expected_bbox": {
+    "xlen": 60, "ylen": 100, "zlen": 60,
+    "tolerance_pct": 10
+  }
+}
