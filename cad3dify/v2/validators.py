@@ -384,7 +384,9 @@ def validate_bounding_box(
     tolerance: relative error threshold (default 10%)
 
     Axis mapping rules:
-    - total_height / height / thickness → Z axis (vertical)
+    - total_height / height / thickness → best-matching axis (min relative error
+      across X/Y/Z). CadQuery revolve(Y-axis) puts height on Y, extrude-Z puts
+      it on Z; using the closest axis handles both without knowing part orientation.
     - max_diameter / diameter / length / total_length → max(X, Y)
       Works for both rotational parts (X≈Y≈diameter) and plates (max(X,Y)=length)
     - width → min(X, Y)  (plate secondary planar dimension)
@@ -392,13 +394,19 @@ def validate_bounding_box(
     result = BBoxResult(actual=actual_bbox, expected=overall_dims)
     mismatches = []
 
-    # Vertical height → Z axis
+    # Height / thickness — check against the axis closest to the expected value.
+    # This handles both revolve-around-Y (height→ylen) and extrude-Z (height→zlen).
     for key in ["total_height", "height", "thickness"]:
         if key in overall_dims:
             exp = overall_dims[key]
-            actual_z = actual_bbox[2]
-            if exp > 0 and abs(actual_z - exp) / exp > tolerance:
-                mismatches.append(f"Z-axis: actual={actual_z:.1f} vs spec {key}={exp}")
+            if exp > 0:
+                best_err = min(abs(actual_bbox[i] - exp) / exp for i in range(3))
+                if best_err > tolerance:
+                    closest_val = min(actual_bbox, key=lambda v: abs(v - exp))
+                    mismatches.append(
+                        f"Height: closest_axis={closest_val:.1f} vs spec {key}={exp} "
+                        f"(diff {best_err:.0%})"
+                    )
 
     # Primary planar dimension: diameter or length → max(X, Y)
     for key in ["max_diameter", "diameter", "length", "total_length"]:

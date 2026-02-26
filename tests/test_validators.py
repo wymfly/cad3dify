@@ -260,6 +260,16 @@ class TestBoundingBox:
         result = validate_bounding_box(actual_bbox, dims)
         assert result.passed is False
 
+    def test_rotational_revolve_y_axis_passes(self) -> None:
+        """Rotational parts using revolve around Y have height on Y axis, not Z."""
+        # CadQuery: XZ workplane + revolve((0,1,0)) → bbox=(diameter, height, diameter)
+        dims = {"max_diameter": 100, "total_height": 30}
+        actual_bbox = (100.0, 30.0, 100.0)  # height on Y (revolve-around-Y pattern)
+        result = validate_bounding_box(actual_bbox, dims)
+        assert result.passed is True, (
+            f"Rotational revolve-Y should pass but got: {result.detail}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # STEP geometry validation
