@@ -46,8 +46,7 @@ _STUB_ROOTS: frozenset[str] = frozenset({
     # loguru — NOT stubbed, used by validators for real logging
     "paddleocr",
     "pytesseract",
-    "PIL",
-    "pillow",
+    # PIL / Pillow — NOT stubbed, needed for contour overlay tests
 })
 
 

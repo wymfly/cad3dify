@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 
@@ -256,6 +257,7 @@ class SmartRefiner:
         step_filepath: str | None = None,
         structured_feedback: bool = False,
         topology_check: bool = False,
+        contour_overlay: bool = False,
     ) -> str | None:
         """
         零风险改进流程：Layer 1/2 仅用于诊断上下文，VL 始终运行（质量唯一裁判）。
@@ -271,6 +273,7 @@ class SmartRefiner:
             step_filepath: STEP 文件路径（用于包围盒/拓扑校验）
             structured_feedback: 启用结构化 JSON 反馈解析
             topology_check: 启用拓扑验证并注入诊断
+            contour_overlay: 当 VL 判定 FAIL 时生成轮廓叠加图做精细差异分析
 
         返回修正后的代码，如果 VL 判定 PASS 则返回 None。
         """
@@ -372,6 +375,53 @@ class SmartRefiner:
             return None
 
         logger.info(f"Smart refiner Layer 3: found differences:\n{comparison}")
+
+        # ---- Layer 3.5: 轮廓叠加比对（可选，精细差异分析） ----
+        if contour_overlay and step_filepath and original_image:
+            try:
+                import tempfile
+
+                from ..infra.render import (
+                    overlay_contour_on_drawing,
+                    render_wireframe_contour,
+                )
+
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    contour_path = os.path.join(tmp_dir, "contour.png")
+                    render_wireframe_contour(step_filepath, contour_path)
+
+                    # Save original drawing to temp file for overlay
+                    drawing_path = os.path.join(tmp_dir, "drawing.png")
+                    original_image.save(drawing_path)
+
+                    overlay_path = os.path.join(tmp_dir, "overlay.png")
+                    overlay_contour_on_drawing(
+                        drawing_path, contour_path, overlay_path, alpha=0.6
+                    )
+
+                    # Load overlay as ImageData for VL re-analysis
+                    overlay_img = ImageData.from_file(overlay_path)
+                    overlay_comparison = chain.invoke({
+                        "drawing_spec": drawing_spec.to_prompt_text(),
+                        "code": code,
+                        "original_image_type": overlay_img.type,
+                        "original_image_data": overlay_img.data,
+                        "rendered_image_type": rendered_image.type,
+                        "rendered_image_data": rendered_image.data,
+                    })["result"]
+
+                    if overlay_comparison:
+                        comparison += (
+                            "\n\n## 轮廓叠加精细分析\n" + overlay_comparison
+                        )
+                        logger.info(
+                            "Smart refiner Layer 3.5: contour overlay "
+                            "analysis added to fix instructions"
+                        )
+            except Exception as e:
+                logger.warning(
+                    f"Smart refiner Layer 3.5: contour overlay failed — {e}"
+                )
 
         # 合并 VL 发现 + 静态检查诊断，提升 Coder 修复精度
         if static_notes:
