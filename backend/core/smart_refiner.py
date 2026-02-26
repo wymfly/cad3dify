@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 from typing import Any, Union
 
@@ -15,9 +17,12 @@ from ..infra.image import ImageData
 from ..knowledge.part_types import DrawingSpec
 from .validators import (
     _get_bbox_from_step,
+    compare_topology,
+    count_topology,
     validate_bounding_box,
     validate_code_params,
 )
+from .vl_feedback import parse_vl_feedback
 
 # ---- 阶段 4a: VL 模型分析差异 ----
 
@@ -55,6 +60,47 @@ _COMPARE_PROMPT = """\
 
 ## 判断标准（严格遵守）
 - 如果所有尺寸在 5% 误差范围内，且结构正确（阶梯数、孔数一致），输出 "PASS"
+- 只报告**明确的结构性差异**，如：缺少阶梯层、孔数不对、整体形状错误
+- 不要报告：渲染角度差异、光照/阴影效果、微小的圆角差异、表面纹理
+- 不确定的问题不要报告，宁可漏报不可误报
+"""
+
+_STRUCTURED_COMPARE_PROMPT = """\
+你是一位经验丰富的机械工程师。请对比以下图片：
+1. 第一张是原始的 2D 工程图纸
+2. 后续图片是根据代码生成的 3D 模型多视角渲染图
+
+## 预期规格（来自图纸分析）
+{drawing_spec}
+
+## 当前代码
+```python
+{code}
+```
+
+## 任务
+请仔细对比渲染结果与原始图纸，找出所有不一致的地方。
+
+## 输出格式（严格 JSON）
+```json
+{{
+    "verdict": "PASS" 或 "FAIL",
+    "issues": [
+        {{
+            "type": "dimension" | "structural" | "feature" | "orientation",
+            "severity": "high" | "medium" | "low",
+            "description": "问题描述",
+            "expected": "预期值",
+            "actual": "实际值",
+            "location": "问题位置"
+        }}
+    ]
+}}
+```
+
+如果所有尺寸在 5% 误差范围内，且结构正确，输出 `{{"verdict": "PASS", "issues": []}}`。
+
+## 判断标准（严格遵守）
 - 只报告**明确的结构性差异**，如：缺少阶梯层、孔数不对、整体形状错误
 - 不要报告：渲染角度差异、光照/阴影效果、微小的圆角差异、表面纹理
 - 不确定的问题不要报告，宁可漏报不可误报
@@ -206,12 +252,25 @@ class SmartRefiner:
         rendered_image: ImageData,
         drawing_spec: DrawingSpec,
         step_filepath: str | None = None,
+        structured_feedback: bool = False,
+        rendered_images: dict[str, ImageData] | None = None,
+        topology_check: bool = False,
     ) -> str | None:
         """
         零风险改进流程：Layer 1/2 仅用于诊断上下文，VL 始终运行（质量唯一裁判）。
 
         Layer 1（静态参数校验）和 Layer 2（包围盒校验）收集诊断信息并注入
         Coder 修复指令，但不跳过 VL 调用。VL 是决定是否需要修复的唯一依据。
+
+        Args:
+            code: 当前 CadQuery 代码
+            original_image: 原始工程图纸图像
+            rendered_image: 当前渲染的单视角图像
+            drawing_spec: 图纸分析规格
+            step_filepath: STEP 文件路径（用于包围盒/拓扑校验）
+            structured_feedback: 启用结构化 JSON 反馈解析
+            rendered_images: 多视角渲染图像字典 {view_name: ImageData}
+            topology_check: 启用拓扑验证并注入诊断
 
         返回修正后的代码，如果 VL 判定 PASS 则返回 None。
         """
@@ -253,6 +312,35 @@ class SmartRefiner:
         else:
             logger.info("Smart refiner Layer 2: no step_filepath, skipping bbox check")
 
+        # ---- Layer 2.5: 拓扑校验（诊断，不影响 VL 执行） ----
+        if topology_check and step_filepath:
+            try:
+                topo = count_topology(step_filepath)
+                if not topo.error:
+                    # 估算预期孔数：特征中 hole_pattern 类型的 count 之和
+                    expected_holes = 0
+                    for feat in drawing_spec.features:
+                        if feat.get("type") == "hole_pattern":
+                            expected_holes += int(feat.get("count", 0))
+                    if drawing_spec.base_body.bore is not None:
+                        expected_holes += 1
+
+                    topo_cmp = compare_topology(topo, expected_holes=expected_holes)
+                    if not topo_cmp.passed:
+                        logger.warning(
+                            f"Smart refiner Layer 2.5: topology mismatch — "
+                            f"{'; '.join(topo_cmp.mismatches)} (VL will still run)"
+                        )
+                        static_notes.extend(topo_cmp.mismatches)
+                    else:
+                        logger.info("Smart refiner Layer 2.5: topology check PASSED")
+                else:
+                    logger.warning(
+                        f"Smart refiner Layer 2.5: topology error — {topo.error}"
+                    )
+            except Exception as e:
+                logger.warning(f"Smart refiner Layer 2.5: topology check failed — {e}")
+
         # ---- Layer 3: VL 对比（始终运行，是质量的唯一裁判） ----
         logger.info("Smart refiner Layer 3: running VL comparison...")
         comparison = self.compare_chain.invoke({
@@ -263,6 +351,19 @@ class SmartRefiner:
             "rendered_image_type": rendered_image.type,
             "rendered_image_data": rendered_image.data,
         })["result"]
+
+        # 结构化反馈解析
+        if structured_feedback and comparison is not None:
+            feedback = parse_vl_feedback(comparison)
+            if feedback.passed:
+                logger.info("Smart refiner Layer 3: structured feedback PASS")
+                comparison = None
+            else:
+                comparison = feedback.to_fix_instructions()
+                logger.info(
+                    f"Smart refiner Layer 3: structured feedback — "
+                    f"{len(feedback.issues)} issues"
+                )
 
         if comparison is None:
             logger.info("Smart refiner Layer 3: PASS — rendering matches drawing")
