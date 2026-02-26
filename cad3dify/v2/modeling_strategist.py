@@ -126,12 +126,20 @@ class ModelingStrategist:
 
         spec_features = _extract_features_from_spec(spec)
 
-        # Sort by descending Jaccard similarity; stable sort preserves insertion
-        # order for tied scores (type-first ordering).
+        # IDs of examples that belong to the requested part type (used as
+        # tiebreaker: prefer same-type examples when Jaccard scores are equal).
+        spec_type_ids: set[int] = {
+            id(ex) for ex in EXAMPLES_BY_TYPE.get(spec.part_type, [])
+        }
+
+        # Primary sort: descending Jaccard similarity.
+        # Secondary sort: same-type examples rank before others (0 < 1).
         ranked = sorted(
             all_examples,
-            key=lambda ex: _jaccard(spec_features, ex.features),
-            reverse=True,
+            key=lambda ex: (
+                -_jaccard(spec_features, ex.features),
+                0 if id(ex) in spec_type_ids else 1,
+            ),
         )
 
         top = ranked[:max_examples]

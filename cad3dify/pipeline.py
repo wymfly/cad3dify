@@ -111,7 +111,10 @@ def generate_step_v2(
     logger.info(f"[V2] Drawing spec: {spec.part_type}, dims={spec.overall_dimensions}")
 
     if on_spec_ready:
-        on_spec_ready(spec, reasoning)
+        try:
+            on_spec_ready(spec, reasoning)
+        except TypeError:
+            on_spec_ready(spec)  # backward compat: old callers accept only (spec,)
 
     # 阶段 1.5: 选择建模策略
     logger.info("[V2] Stage 1.5: Selecting modeling strategy...")
