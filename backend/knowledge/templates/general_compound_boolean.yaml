@@ -1,0 +1,108 @@
+name: general_compound_boolean
+display_name: 复合布尔运算件
+part_type: general
+description: 多个基体通过布尔运算组合的复合零件
+
+params:
+  - name: base_width
+    display_name: 底板宽度
+    unit: mm
+    param_type: float
+    range_min: 10
+    range_max: 500
+    default: 100
+  - name: base_length
+    display_name: 底板长度
+    unit: mm
+    param_type: float
+    range_min: 10
+    range_max: 500
+    default: 80
+  - name: base_thickness
+    display_name: 底板厚度
+    unit: mm
+    param_type: float
+    range_min: 2
+    range_max: 50
+    default: 10
+  - name: boss_diameter
+    display_name: 凸台直径
+    unit: mm
+    param_type: float
+    range_min: 5
+    range_max: 200
+    default: 30
+  - name: boss_height
+    display_name: 凸台高度
+    unit: mm
+    param_type: float
+    range_min: 2
+    range_max: 100
+    default: 20
+  - name: hole_diameter
+    display_name: 通孔直径
+    unit: mm
+    param_type: float
+    range_min: 2
+    range_max: 100
+    default: 10
+  - name: pocket_width
+    display_name: 凹槽宽度
+    unit: mm
+    param_type: float
+    range_min: 5
+    range_max: 200
+    default: 40
+  - name: pocket_depth
+    display_name: 凹槽深度
+    unit: mm
+    param_type: float
+    range_min: 1
+    range_max: 50
+    default: 5
+
+constraints:
+  - "boss_diameter < base_width"
+  - "hole_diameter < boss_diameter"
+  - "pocket_width < base_length"
+  - "pocket_depth < base_thickness"
+
+code_template: |
+  import cadquery as cq
+
+  bw = {{ base_width }}
+  bl = {{ base_length }}
+  bt = {{ base_thickness }}
+  bd = {{ boss_diameter }}
+  bh = {{ boss_height }}
+  hd = {{ hole_diameter }}
+  pw = {{ pocket_width }}
+  pd = {{ pocket_depth }}
+
+  # 1. 底板（union 基体）
+  result = cq.Workplane("XY").rect(bw, bl).extrude(bt)
+
+  # 2. 中心凸台（union）
+  boss = (
+      cq.Workplane("XY")
+      .workplane(offset=bt)
+      .circle(bd / 2)
+      .extrude(bh)
+  )
+  result = result.union(boss)
+
+  # 3. 凸台通孔（cut）
+  result = (
+      result.faces(">Z").workplane()
+      .circle(hd / 2)
+      .cutThruAll()
+  )
+
+  # 4. 底板凹槽（cut）
+  result = (
+      result.faces("<Z").workplane()
+      .rect(pw, pw)
+      .cutBlind(pd)
+  )
+
+  cq.exporters.export(result, "{{ output_filename }}")

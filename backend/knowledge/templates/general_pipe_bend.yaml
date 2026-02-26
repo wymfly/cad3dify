@@ -1,0 +1,83 @@
+name: general_pipe_bend
+display_name: 弯管
+part_type: general
+description: 沿路径扫掠的弯管件
+
+params:
+  - name: outer_diameter
+    display_name: 外径
+    unit: mm
+    param_type: float
+    range_min: 5
+    range_max: 500
+    default: 30
+  - name: wall_thickness
+    display_name: 壁厚
+    unit: mm
+    param_type: float
+    range_min: 0.5
+    range_max: 50
+    default: 3
+  - name: bend_radius
+    display_name: 弯曲半径
+    unit: mm
+    param_type: float
+    range_min: 10
+    range_max: 1000
+    default: 50
+  - name: bend_angle
+    display_name: 弯曲角度
+    unit: deg
+    param_type: float
+    range_min: 1
+    range_max: 180
+    default: 90
+  - name: straight_length
+    display_name: 直管段长度
+    unit: mm
+    param_type: float
+    range_min: 0
+    range_max: 500
+    default: 40
+
+constraints:
+  - "wall_thickness < outer_diameter / 2"
+  - "bend_radius >= outer_diameter"
+
+code_template: |
+  import cadquery as cq
+  import math
+
+  od = {{ outer_diameter }}
+  wt = {{ wall_thickness }}
+  br = {{ bend_radius }}
+  ba_deg = {{ bend_angle }}
+  sl = {{ straight_length }}
+
+  inner_r = od / 2 - wt
+  ba = math.radians(ba_deg)
+
+  # 扫掠路径：直线段 + 圆弧 + 直线段
+  path = (
+      cq.Workplane("XZ")
+      .moveTo(0, 0)
+      .lineTo(0, sl)
+      .radiusArc((br * (1 - math.cos(ba)), sl + br * math.sin(ba)), -br)
+  )
+
+  # 外管扫掠
+  outer = (
+      cq.Workplane("XY")
+      .circle(od / 2)
+      .sweep(path)
+  )
+
+  # 内腔扫掠（减去得到壁厚）
+  inner = (
+      cq.Workplane("XY")
+      .circle(inner_r)
+      .sweep(path)
+  )
+
+  result = outer.cut(inner)
+  cq.exporters.export(result, "{{ output_filename }}")
