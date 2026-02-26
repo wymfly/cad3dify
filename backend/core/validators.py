@@ -639,3 +639,115 @@ def compare_topology(
         logger.info("Topology compare passed")
 
     return TopologyCompareResult(passed=passed, mismatches=mismatches)
+
+
+# ---------------------------------------------------------------------------
+# Cross-section analysis
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CrossSectionResult:
+    """Result of a single cross-section measurement."""
+
+    height: float = 0.0
+    expected_diameter: float = 0.0
+    measured_diameter: float = 0.0
+    within_tolerance: bool = True
+    deviation_pct: float = 0.0
+
+
+@dataclass
+class CrossSectionAnalysis:
+    """Result of cross-section analysis across all spec layers."""
+
+    sections: list[CrossSectionResult] = field(default_factory=list)
+    error: str = ""
+
+
+def cross_section_analysis(
+    step_filepath: str,
+    spec: DrawingSpec,
+    tolerance: float = 0.10,
+) -> CrossSectionAnalysis:
+    """Cut cross-sections at spec layer mid-heights and measure diameters.
+
+    For rotational/stepped parts, each profile layer defines a height range.
+    Cut at mid-height of each layer and measure bounding box width.
+
+    Algorithm:
+    1. Load STEP file
+    2. For each layer in spec.base_body.profile:
+       - Compute mid_h = cumulative_h + layer.height / 2
+       - Create a cutting plane at Z=mid_h using OCP.gp.gp_Pln
+       - Perform boolean section: BRepAlgoAPI_Section(solid.wrapped, plane)
+       - Get bounding box of the section -> max(xlen, ylen) as measured diameter
+       - Compare with layer.diameter (expected)
+    3. Return CrossSectionAnalysis with per-layer results
+
+    Error handling:
+    - Empty profile -> CrossSectionAnalysis(error="No profile layers in spec")
+    - File not found -> CrossSectionAnalysis(error=...)
+    - Section failure -> measured_diameter = 0.0
+    """
+    if not spec.base_body.profile:
+        return CrossSectionAnalysis(error="No profile layers in spec")
+
+    try:
+        import cadquery as cq
+        from OCP.BRepAlgoAPI import BRepAlgoAPI_Section
+        from OCP.gp import gp_Dir, gp_Pln, gp_Pnt
+
+        shape = cq.importers.importStep(step_filepath)
+        solid = shape.val()
+    except FileNotFoundError:
+        return CrossSectionAnalysis(error=f"File not found: {step_filepath}")
+    except Exception as e:
+        return CrossSectionAnalysis(error=f"Failed to load STEP file: {e}")
+
+    sections: list[CrossSectionResult] = []
+    cumulative_h = 0.0
+
+    for layer in spec.base_body.profile:
+        mid_h = cumulative_h + layer.height / 2
+        expected_d = layer.diameter
+
+        measured_d = 0.0
+        try:
+            plane = gp_Pln(gp_Pnt(0, 0, mid_h), gp_Dir(0, 0, 1))
+            section = BRepAlgoAPI_Section(solid.wrapped, plane)
+            section.Build()
+
+            if section.IsDone():
+                section_shape = cq.Shape(section.Shape())
+                bb = section_shape.BoundingBox()
+                measured_d = max(bb.xlen, bb.ylen)
+        except Exception as e:
+            logger.warning(
+                f"Cross-section at z={mid_h} failed: {e}"
+            )
+
+        if expected_d > 0:
+            deviation = abs(measured_d - expected_d) / expected_d
+        else:
+            deviation = 0.0
+
+        within_tol = deviation <= tolerance
+
+        sections.append(
+            CrossSectionResult(
+                height=mid_h,
+                expected_diameter=expected_d,
+                measured_diameter=measured_d,
+                within_tolerance=within_tol,
+                deviation_pct=deviation * 100,
+            )
+        )
+
+        cumulative_h += layer.height
+
+    logger.info(
+        f"Cross-section analysis: {len(sections)} layers, "
+        f"all_ok={all(s.within_tolerance for s in sections)}"
+    )
+    return CrossSectionAnalysis(sections=sections)
