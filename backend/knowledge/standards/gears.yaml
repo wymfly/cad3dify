@@ -1,0 +1,121 @@
+# 齿轮模数系列 — GB/T 1357
+# 标准模数 + 推荐齿数范围 + 基本公式参数
+# 单位: mm / deg
+
+standards:
+  - name: "m0.5"
+    params:
+      module: 0.5
+      pressure_angle: 20.0
+      min_teeth: 12
+      max_teeth: 200
+      addendum_coefficient: 1.0
+      dedendum_coefficient: 1.25
+
+  - name: "m0.75"
+    params:
+      module: 0.75
+      pressure_angle: 20.0
+      min_teeth: 12
+      max_teeth: 180
+      addendum_coefficient: 1.0
+      dedendum_coefficient: 1.25
+
+  - name: "m1"
+    params:
+      module: 1.0
+      pressure_angle: 20.0
+      min_teeth: 12
+      max_teeth: 150
+      addendum_coefficient: 1.0
+      dedendum_coefficient: 1.25
+
+  - name: "m1.25"
+    params:
+      module: 1.25
+      pressure_angle: 20.0
+      min_teeth: 12
+      max_teeth: 120
+      addendum_coefficient: 1.0
+      dedendum_coefficient: 1.25
+
+  - name: "m1.5"
+    params:
+      module: 1.5
+      pressure_angle: 20.0
+      min_teeth: 14
+      max_teeth: 100
+      addendum_coefficient: 1.0
+      dedendum_coefficient: 1.25
+
+  - name: "m2"
+    params:
+      module: 2.0
+      pressure_angle: 20.0
+      min_teeth: 14
+      max_teeth: 80
+      addendum_coefficient: 1.0
+      dedendum_coefficient: 1.25
+
+  - name: "m2.5"
+    params:
+      module: 2.5
+      pressure_angle: 20.0
+      min_teeth: 14
+      max_teeth: 70
+      addendum_coefficient: 1.0
+      dedendum_coefficient: 1.25
+
+  - name: "m3"
+    params:
+      module: 3.0
+      pressure_angle: 20.0
+      min_teeth: 14
+      max_teeth: 60
+      addendum_coefficient: 1.0
+      dedendum_coefficient: 1.25
+
+  - name: "m4"
+    params:
+      module: 4.0
+      pressure_angle: 20.0
+      min_teeth: 16
+      max_teeth: 50
+      addendum_coefficient: 1.0
+      dedendum_coefficient: 1.25
+
+  - name: "m5"
+    params:
+      module: 5.0
+      pressure_angle: 20.0
+      min_teeth: 16
+      max_teeth: 45
+      addendum_coefficient: 1.0
+      dedendum_coefficient: 1.25
+
+  - name: "m6"
+    params:
+      module: 6.0
+      pressure_angle: 20.0
+      min_teeth: 17
+      max_teeth: 40
+      addendum_coefficient: 1.0
+      dedendum_coefficient: 1.25
+
+  - name: "m8"
+    params:
+      module: 8.0
+      pressure_angle: 20.0
+      min_teeth: 17
+      max_teeth: 35
+      addendum_coefficient: 1.0
+      dedendum_coefficient: 1.25
+
+  - name: "m10"
+    params:
+      module: 10.0
+      pressure_angle: 20.0
+      min_teeth: 17
+      max_teeth: 30
+      addendum_coefficient: 1.0
+      dedendum_coefficient: 1.25

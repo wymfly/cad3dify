@@ -1,0 +1,135 @@
+# 法兰标准数据 — GB/T 9119 板式平焊法兰 (PN10)
+# 尺寸单位: mm
+
+standards:
+  - name: "DN25"
+    params:
+      nominal_diameter: 25
+      outer_diameter: 115.0
+      thickness: 14.0
+      pcd: 85.0
+      hole_count: 4
+      hole_diameter: 14.0
+      bore_diameter: 26.0
+      raised_face_diameter: 60.0
+
+  - name: "DN32"
+    params:
+      nominal_diameter: 32
+      outer_diameter: 140.0
+      thickness: 16.0
+      pcd: 100.0
+      hole_count: 4
+      hole_diameter: 18.0
+      bore_diameter: 38.0
+      raised_face_diameter: 70.0
+
+  - name: "DN40"
+    params:
+      nominal_diameter: 40
+      outer_diameter: 150.0
+      thickness: 16.0
+      pcd: 110.0
+      hole_count: 4
+      hole_diameter: 18.0
+      bore_diameter: 45.0
+      raised_face_diameter: 80.0
+
+  - name: "DN50"
+    params:
+      nominal_diameter: 50
+      outer_diameter: 165.0
+      thickness: 18.0
+      pcd: 125.0
+      hole_count: 4
+      hole_diameter: 18.0
+      bore_diameter: 57.0
+      raised_face_diameter: 90.0
+
+  - name: "DN65"
+    params:
+      nominal_diameter: 65
+      outer_diameter: 185.0
+      thickness: 18.0
+      pcd: 145.0
+      hole_count: 4
+      hole_diameter: 18.0
+      bore_diameter: 76.0
+      raised_face_diameter: 110.0
+
+  - name: "DN80"
+    params:
+      nominal_diameter: 80
+      outer_diameter: 200.0
+      thickness: 20.0
+      pcd: 160.0
+      hole_count: 8
+      hole_diameter: 18.0
+      bore_diameter: 89.0
+      raised_face_diameter: 128.0
+
+  - name: "DN100"
+    params:
+      nominal_diameter: 100
+      outer_diameter: 220.0
+      thickness: 20.0
+      pcd: 180.0
+      hole_count: 8
+      hole_diameter: 18.0
+      bore_diameter: 108.0
+      raised_face_diameter: 148.0
+
+  - name: "DN125"
+    params:
+      nominal_diameter: 125
+      outer_diameter: 250.0
+      thickness: 22.0
+      pcd: 210.0
+      hole_count: 8
+      hole_diameter: 18.0
+      bore_diameter: 133.0
+      raised_face_diameter: 178.0
+
+  - name: "DN150"
+    params:
+      nominal_diameter: 150
+      outer_diameter: 285.0
+      thickness: 22.0
+      pcd: 240.0
+      hole_count: 8
+      hole_diameter: 22.0
+      bore_diameter: 159.0
+      raised_face_diameter: 212.0
+
+  - name: "DN200"
+    params:
+      nominal_diameter: 200
+      outer_diameter: 340.0
+      thickness: 24.0
+      pcd: 295.0
+      hole_count: 8
+      hole_diameter: 22.0
+      bore_diameter: 219.0
+      raised_face_diameter: 268.0
+
+  - name: "DN250"
+    params:
+      nominal_diameter: 250
+      outer_diameter: 395.0
+      thickness: 26.0
+      pcd: 350.0
+      hole_count: 12
+      hole_diameter: 22.0
+      bore_diameter: 273.0
+      raised_face_diameter: 320.0
+
+  - name: "DN300"
+    params:
+      nominal_diameter: 300
+      outer_diameter: 445.0
+      thickness: 26.0
+      pcd: 400.0
+      hole_count: 12
+      hole_diameter: 22.0
+      bore_diameter: 325.0
+      raised_face_diameter: 370.0

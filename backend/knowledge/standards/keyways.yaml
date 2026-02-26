@@ -1,0 +1,85 @@
+# 键/键槽标准 — GB/T 1096 普通平键 (A 型)
+# 轴径 d → 键宽 b × 键高 h，键槽深度 t1 (轴) / t2 (毂)
+# 单位: mm
+
+standards:
+  - name: "d6-8"
+    params:
+      shaft_diameter_min: 6.0
+      shaft_diameter_max: 8.0
+      key_width: 2.0
+      key_height: 2.0
+      shaft_groove_depth: 1.2
+      hub_groove_depth: 1.0
+
+  - name: "d8-10"
+    params:
+      shaft_diameter_min: 8.0
+      shaft_diameter_max: 10.0
+      key_width: 3.0
+      key_height: 3.0
+      shaft_groove_depth: 1.8
+      hub_groove_depth: 1.4
+
+  - name: "d10-12"
+    params:
+      shaft_diameter_min: 10.0
+      shaft_diameter_max: 12.0
+      key_width: 4.0
+      key_height: 4.0
+      shaft_groove_depth: 2.5
+      hub_groove_depth: 1.8
+
+  - name: "d12-17"
+    params:
+      shaft_diameter_min: 12.0
+      shaft_diameter_max: 17.0
+      key_width: 5.0
+      key_height: 5.0
+      shaft_groove_depth: 3.0
+      hub_groove_depth: 2.3
+
+  - name: "d17-22"
+    params:
+      shaft_diameter_min: 17.0
+      shaft_diameter_max: 22.0
+      key_width: 6.0
+      key_height: 6.0
+      shaft_groove_depth: 3.5
+      hub_groove_depth: 2.8
+
+  - name: "d22-30"
+    params:
+      shaft_diameter_min: 22.0
+      shaft_diameter_max: 30.0
+      key_width: 8.0
+      key_height: 7.0
+      shaft_groove_depth: 4.0
+      hub_groove_depth: 3.3
+
+  - name: "d30-38"
+    params:
+      shaft_diameter_min: 30.0
+      shaft_diameter_max: 38.0
+      key_width: 10.0
+      key_height: 8.0
+      shaft_groove_depth: 5.0
+      hub_groove_depth: 3.3
+
+  - name: "d38-44"
+    params:
+      shaft_diameter_min: 38.0
+      shaft_diameter_max: 44.0
+      key_width: 12.0
+      key_height: 8.0
+      shaft_groove_depth: 5.0
+      hub_groove_depth: 3.3
+
+  - name: "d44-50"
+    params:
+      shaft_diameter_min: 44.0
+      shaft_diameter_max: 50.0
+      key_width: 14.0
+      key_height: 9.0
+      shaft_groove_depth: 5.5
+      hub_groove_depth: 3.8

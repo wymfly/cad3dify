@@ -1,0 +1,112 @@
+# 螺栓标准数据 — GB/T 5782 (六角头螺栓) / GB/T 70.1 (内六角螺钉)
+# 通孔直径参考 GB/T 5277 中等系列
+# 沉孔直径/深度参考 DIN 912 / GB/T 70.1
+
+standards:
+  - name: "M6"
+    params:
+      nominal_diameter: 6.0
+      pitch: 1.0
+      through_hole: 6.6
+      counterbore_dia: 11.0
+      counterbore_depth: 6.0
+      head_height: 4.0
+      head_diameter: 10.0
+      nut_height: 5.0
+      nut_width: 10.0
+
+  - name: "M8"
+    params:
+      nominal_diameter: 8.0
+      pitch: 1.25
+      through_hole: 9.0
+      counterbore_dia: 14.5
+      counterbore_depth: 8.0
+      head_height: 5.3
+      head_diameter: 13.0
+      nut_height: 6.5
+      nut_width: 13.0
+
+  - name: "M10"
+    params:
+      nominal_diameter: 10.0
+      pitch: 1.5
+      through_hole: 11.0
+      counterbore_dia: 17.5
+      counterbore_depth: 10.0
+      head_height: 6.4
+      head_diameter: 16.0
+      nut_height: 8.0
+      nut_width: 16.0
+
+  - name: "M12"
+    params:
+      nominal_diameter: 12.0
+      pitch: 1.75
+      through_hole: 13.5
+      counterbore_dia: 20.0
+      counterbore_depth: 12.0
+      head_height: 7.5
+      head_diameter: 18.0
+      nut_height: 10.0
+      nut_width: 18.0
+
+  - name: "M14"
+    params:
+      nominal_diameter: 14.0
+      pitch: 2.0
+      through_hole: 15.5
+      counterbore_dia: 23.0
+      counterbore_depth: 14.0
+      head_height: 8.8
+      head_diameter: 21.0
+      nut_height: 11.0
+      nut_width: 21.0
+
+  - name: "M16"
+    params:
+      nominal_diameter: 16.0
+      pitch: 2.0
+      through_hole: 17.5
+      counterbore_dia: 26.0
+      counterbore_depth: 16.0
+      head_height: 10.0
+      head_diameter: 24.0
+      nut_height: 13.0
+      nut_width: 24.0
+
+  - name: "M20"
+    params:
+      nominal_diameter: 20.0
+      pitch: 2.5
+      through_hole: 22.0
+      counterbore_dia: 33.0
+      counterbore_depth: 20.0
+      head_height: 12.5
+      head_diameter: 30.0
+      nut_height: 16.0
+      nut_width: 30.0
+
+  - name: "M24"
+    params:
+      nominal_diameter: 24.0
+      pitch: 3.0
+      through_hole: 26.0
+      counterbore_dia: 40.0
+      counterbore_depth: 24.0
+      head_height: 15.0
+      head_diameter: 36.0
+      nut_height: 19.0
+      nut_width: 36.0
+
+  - name: "M30"
+    params:
+      nominal_diameter: 30.0
+      pitch: 3.5
+      through_hole: 33.0
+      counterbore_dia: 50.0
+      counterbore_depth: 30.0
+      head_height: 18.7
+      head_diameter: 46.0
+      nut_height: 24.0
+      nut_width: 46.0

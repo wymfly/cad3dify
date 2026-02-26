@@ -1,0 +1,83 @@
+# 配合公差数据 — GB/T 1801 / ISO 286
+# 常用配合类型及公差带（单位: mm）
+# deviation 值为 IT7 等级基本偏差，具体值随名义尺寸变化
+# 此处列出公称尺寸区间 18-30mm 的典型值作为参考
+
+standards:
+  - name: "H7/h6"
+    params:
+      fit_type: "clearance"
+      description: "间隙配合 — 滑动轴承、导向"
+      hole_tolerance_grade: "H7"
+      shaft_tolerance_grade: "h6"
+      hole_upper_deviation: 0.021
+      hole_lower_deviation: 0.0
+      shaft_upper_deviation: 0.0
+      shaft_lower_deviation: -0.013
+      typical_clearance_min: 0.0
+      typical_clearance_max: 0.034
+
+  - name: "H7/p6"
+    params:
+      fit_type: "interference"
+      description: "过盈配合 — 齿轮/轴承内圈压入"
+      hole_tolerance_grade: "H7"
+      shaft_tolerance_grade: "p6"
+      hole_upper_deviation: 0.021
+      hole_lower_deviation: 0.0
+      shaft_upper_deviation: 0.035
+      shaft_lower_deviation: 0.022
+      typical_clearance_min: -0.035
+      typical_clearance_max: -0.001
+
+  - name: "H7/k6"
+    params:
+      fit_type: "transition"
+      description: "过渡配合 — 联轴器、定位销"
+      hole_tolerance_grade: "H7"
+      shaft_tolerance_grade: "k6"
+      hole_upper_deviation: 0.021
+      hole_lower_deviation: 0.0
+      shaft_upper_deviation: 0.015
+      shaft_lower_deviation: 0.002
+      typical_clearance_min: -0.015
+      typical_clearance_max: 0.019
+
+  - name: "H6/h5"
+    params:
+      fit_type: "clearance"
+      description: "精密间隙配合 — 精密导向、量具"
+      hole_tolerance_grade: "H6"
+      shaft_tolerance_grade: "h5"
+      hole_upper_deviation: 0.013
+      hole_lower_deviation: 0.0
+      shaft_upper_deviation: 0.0
+      shaft_lower_deviation: -0.009
+      typical_clearance_min: 0.0
+      typical_clearance_max: 0.022
+
+  - name: "H7/g6"
+    params:
+      fit_type: "clearance"
+      description: "间隙配合 — 滑动轴承、精密滑动"
+      hole_tolerance_grade: "H7"
+      shaft_tolerance_grade: "g6"
+      hole_upper_deviation: 0.021
+      hole_lower_deviation: 0.0
+      shaft_upper_deviation: -0.007
+      shaft_lower_deviation: -0.020
+      typical_clearance_min: 0.007
+      typical_clearance_max: 0.041
+
+  - name: "H7/n6"
+    params:
+      fit_type: "transition"
+      description: "过渡配合 — 紧密联接、较大过盈可能"
+      hole_tolerance_grade: "H7"
+      shaft_tolerance_grade: "n6"
+      hole_upper_deviation: 0.021
+      hole_lower_deviation: 0.0
+      shaft_upper_deviation: 0.028
+      shaft_lower_deviation: 0.015
+      typical_clearance_min: -0.028
+      typical_clearance_max: 0.006
