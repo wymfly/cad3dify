@@ -507,3 +507,135 @@ def estimate_volume(spec: DrawingSpec) -> float:
     width = spec.base_body.width or spec.overall_dimensions.get("width", 0)
     height = spec.base_body.height or spec.overall_dimensions.get("height", 0)
     return length * width * height
+
+
+# ---------------------------------------------------------------------------
+# Topology validation
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TopologyResult:
+    """Result of topology analysis on a STEP file."""
+
+    num_solids: int = 0
+    num_shells: int = 0
+    num_faces: int = 0
+    num_cylindrical_faces: int = 0
+    num_planar_faces: int = 0
+    error: str = ""
+
+
+def count_topology(step_filepath: str) -> TopologyResult:
+    """Count topological entities in a STEP file.
+
+    Uses OCCT (via CadQuery) TopExp_Explorer to count:
+    - Solids, Shells, Faces (total, cylindrical, planar)
+    - Cylindrical faces indicate holes/bores
+
+    Implementation:
+    1. cq.importers.importStep(step_filepath)
+    2. Use OCP.TopExp.TopExp_Explorer with TopAbs_SOLID, TopAbs_SHELL, TopAbs_FACE
+    3. For faces: use BRepAdaptor_Surface to check GeomAbs_Cylinder/GeomAbs_Plane
+    """
+    try:
+        import cadquery as cq
+        from OCP.BRepAdaptor import BRepAdaptor_Surface
+        from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
+        from OCP.TopAbs import TopAbs_FACE, TopAbs_SHELL, TopAbs_SOLID
+        from OCP.TopoDS import TopoDS
+        from OCP.TopExp import TopExp_Explorer
+
+        shape = cq.importers.importStep(step_filepath)
+        occ_shape = shape.val().wrapped
+
+        # Count solids
+        num_solids = 0
+        explorer = TopExp_Explorer(occ_shape, TopAbs_SOLID)
+        while explorer.More():
+            num_solids += 1
+            explorer.Next()
+
+        # Count shells
+        num_shells = 0
+        explorer = TopExp_Explorer(occ_shape, TopAbs_SHELL)
+        while explorer.More():
+            num_shells += 1
+            explorer.Next()
+
+        # Count faces and classify by surface type
+        num_faces = 0
+        num_cylindrical = 0
+        num_planar = 0
+        explorer = TopExp_Explorer(occ_shape, TopAbs_FACE)
+        while explorer.More():
+            face = TopoDS.Face_s(explorer.Current())
+            num_faces += 1
+            try:
+                adaptor = BRepAdaptor_Surface(face)
+                surface_type = adaptor.GetType()
+                if surface_type == GeomAbs_Cylinder:
+                    num_cylindrical += 1
+                elif surface_type == GeomAbs_Plane:
+                    num_planar += 1
+            except Exception:
+                pass  # skip unclassifiable faces
+            explorer.Next()
+
+        result = TopologyResult(
+            num_solids=num_solids,
+            num_shells=num_shells,
+            num_faces=num_faces,
+            num_cylindrical_faces=num_cylindrical,
+            num_planar_faces=num_planar,
+        )
+        logger.info(
+            f"Topology count: solids={num_solids}, shells={num_shells}, "
+            f"faces={num_faces} (cylindrical={num_cylindrical}, planar={num_planar})"
+        )
+        return result
+    except FileNotFoundError:
+        return TopologyResult(error=f"File not found: {step_filepath}")
+    except Exception as e:
+        return TopologyResult(error=str(e))
+
+
+@dataclass
+class TopologyCompareResult:
+    """Result of comparing actual topology with expected."""
+
+    passed: bool = True
+    mismatches: list[str] = field(default_factory=list)
+
+
+def compare_topology(
+    actual: TopologyResult,
+    *,
+    expected_holes: int = 0,
+) -> TopologyCompareResult:
+    """Compare topology counts with expected features.
+
+    Each through-hole contributes at least 1 cylindrical face.
+    If actual.num_cylindrical_faces < expected_holes, report mismatch.
+    If actual.num_solids == 0, report mismatch.
+    """
+    mismatches: list[str] = []
+
+    if actual.num_solids == 0:
+        mismatches.append(
+            f"No solids found (expected >= 1, got {actual.num_solids})"
+        )
+
+    if expected_holes > 0 and actual.num_cylindrical_faces < expected_holes:
+        mismatches.append(
+            f"Missing holes: expected >= {expected_holes} cylindrical faces, "
+            f"got {actual.num_cylindrical_faces}"
+        )
+
+    passed = len(mismatches) == 0
+    if not passed:
+        logger.warning(f"Topology compare failed: {'; '.join(mismatches)}")
+    else:
+        logger.info("Topology compare passed")
+
+    return TopologyCompareResult(passed=passed, mismatches=mismatches)
