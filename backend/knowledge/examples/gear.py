@@ -1,15 +1,16 @@
 """Few-shot examples for gear parts.
 
-Includes involute gear math (base/addendum/dedendum circles, involute point
-generation) and simplified rectangular-slot approximations.
+Uses rectangular-slot approximation for tooth cutting.  Involute math
+(base/addendum/dedendum circles) is computed for reference but the actual
+tooth profile is simplified to rectangular slots for CadQuery compatibility.
 """
 
 from ._base import TaggedExample
 
 GEAR_EXAMPLES: list[TaggedExample] = [
     TaggedExample(
-        description="渐开线直齿轮 m=2 z=24 b=20，精确齿廓，中心孔φ16，键槽5×3",
-        features=frozenset({"gear_teeth", "revolve", "bore", "keyway", "involute"}),
+        description="直齿轮 m=2 z=24 b=20，矩形槽近似齿廓，中心孔φ16，键槽5×3",
+        features=frozenset({"gear_teeth", "revolve", "bore", "keyway"}),
         code="""\
 import cadquery as cq
 import math
@@ -24,20 +25,11 @@ b = 20       # 齿宽 (mm)
 rp = m * z / 2             # 分度圆半径 = 24
 ra = m * (z + 2) / 2       # 齿顶圆半径 = 26
 rf = m * (z - 2.5) / 2     # 齿根圆半径 = 21.5
-rb = rp * math.cos(alpha)  # 基圆半径
-
-# 渐开线点生成
-def involute_pt(rb, t):
-    return (rb * (math.cos(t) + t * math.sin(t)),
-            rb * (math.sin(t) - t * math.cos(t)))
-
-t_max = math.sqrt((ra / rb) ** 2 - 1)
-inv_pts = [involute_pt(rb, i * t_max / 15) for i in range(16)]
 
 # 建立齿顶圆柱基体
 result = cq.Workplane("XY").circle(ra).extrude(b)
 
-# 齿槽切除
+# 齿槽切除（矩形近似）
 tooth_angle = 360 / z
 slot_w = m * math.pi / 2
 for i in range(z):

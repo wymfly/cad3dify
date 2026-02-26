@@ -483,45 +483,28 @@ class PrintabilityChecker:
             return []
         return [self._correction_for_issue(issue) for issue in issues]
 
-    @staticmethod
-    def _correction_for_issue(issue: PrintIssue) -> CorrectionAdvice:
-        mapping: dict[str, CorrectionAdvice] = {
-            "wall_thickness": CorrectionAdvice(
-                issue_type="wall_thickness",
-                suggestion="增加壁厚至最小阈值以上，或更换高精度打印技术（如SLA）",
-                auto_fixable=True,
-            ),
-            "overhang": CorrectionAdvice(
-                issue_type="overhang",
-                suggestion=(
-                    "添加支撑结构、调整打印方向，"
-                    "或考虑使用SLS打印（无需支撑）"
-                ),
-                auto_fixable=False,
-            ),
-            "hole_diameter": CorrectionAdvice(
-                issue_type="hole_diameter",
-                suggestion="增大孔径至最小可打印直径以上，或后处理钻孔",
-                auto_fixable=True,
-            ),
-            "rib_thickness": CorrectionAdvice(
-                issue_type="rib_thickness",
-                suggestion="增加筋板厚度，或移除过薄特征",
-                auto_fixable=True,
-            ),
-            "build_volume": CorrectionAdvice(
-                issue_type="build_volume",
-                suggestion="缩小零件尺寸，或使用更大打印机",
-                auto_fixable=False,
-            ),
-        }
-        return mapping.get(
-            issue.check,
-            CorrectionAdvice(
+    _CORRECTION_MAP: dict[str, tuple[str, bool]] = {
+        "wall_thickness": ("增加壁厚至最小阈值以上，或更换高精度打印技术（如SLA）", True),
+        "overhang": ("添加支撑结构、调整打印方向，或考虑使用SLS打印（无需支撑）", False),
+        "hole_diameter": ("增大孔径至最小可打印直径以上，或后处理钻孔", True),
+        "rib_thickness": ("增加筋板厚度，或移除过薄特征", True),
+        "build_volume": ("缩小零件尺寸，或使用更大打印机", False),
+    }
+
+    @classmethod
+    def _correction_for_issue(cls, issue: PrintIssue) -> CorrectionAdvice:
+        entry = cls._CORRECTION_MAP.get(issue.check)
+        if entry:
+            suggestion, auto_fixable = entry
+            return CorrectionAdvice(
                 issue_type=issue.check,
-                suggestion=f"请检查并修正: {issue.message}",
-                auto_fixable=False,
-            ),
+                suggestion=suggestion,
+                auto_fixable=auto_fixable,
+            )
+        return CorrectionAdvice(
+            issue_type=issue.check,
+            suggestion=f"请检查并修正: {issue.message}",
+            auto_fixable=False,
         )
 
     # -- helpers -------------------------------------------------------------

@@ -118,7 +118,6 @@ def render_wireframe_contour(
     output_filepath: str,
     view: str = "front",
     line_color: tuple[int, int, int] = (255, 0, 0),
-    line_width: int = 2,
 ) -> str:
     """Render STEP model as wireframe contour PNG.
 
@@ -128,7 +127,7 @@ def render_wireframe_contour(
     Returns:
         The *output_filepath* for convenience.
     """
-    from PIL import Image, ImageDraw
+    from PIL import Image
 
     direction = STANDARD_VIEWS.get(view, STANDARD_VIEWS["front"])["direction"]
 
@@ -151,23 +150,25 @@ def render_wireframe_contour(
             drawing = svg2rlg(svg_path)
             renderPM.drawToFile(drawing, tmp_png, fmt="PNG")
         except Exception:
-            logger.debug("SVG→PNG conversion failed, creating placeholder")
+            logger.warning(
+                "SVG→PNG conversion failed for wireframe contour, "
+                "creating blank placeholder"
+            )
 
         # Ensure intermediate PNG exists (stubbed deps may produce nothing)
         if not os.path.exists(tmp_png):
             Image.new("RGBA", (400, 400), (0, 0, 0, 0)).save(tmp_png)
 
         # Recolour dark pixels (wireframe lines) to the requested colour
+        import numpy as np
+
         img = Image.open(tmp_png).convert("RGBA")
-        pixels = img.load()
-        for y_px in range(img.height):
-            for x_px in range(img.width):
-                r, g, b, a = pixels[x_px, y_px]
-                if r < 128 and g < 128 and b < 128 and a > 0:
-                    pixels[x_px, y_px] = (*line_color, 255)
-                else:
-                    pixels[x_px, y_px] = (0, 0, 0, 0)
-        img.save(output_filepath)
+        arr = np.array(img)
+        r, g, b, a = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2], arr[:, :, 3]
+        dark_mask = (r < 128) & (g < 128) & (b < 128) & (a > 0)
+        result_arr = np.zeros_like(arr)
+        result_arr[dark_mask] = [*line_color, 255]
+        Image.fromarray(result_arr, "RGBA").save(output_filepath)
 
         if os.path.exists(tmp_png):
             os.unlink(tmp_png)
@@ -182,11 +183,10 @@ def overlay_contour_on_drawing(
     drawing_path: str,
     contour_path: str,
     output_path: str,
-    alpha: float = 0.6,
 ) -> str:
     """Overlay wireframe contour onto original drawing image.
 
-    Uses PIL for image compositing with alpha blending.
+    Uses PIL alpha_composite for proper RGBA compositing.
     Contour is resized to match drawing dimensions if needed.
 
     Returns:
@@ -201,8 +201,8 @@ def overlay_contour_on_drawing(
     if contour_img.size != drawing_img.size:
         contour_img = contour_img.resize(drawing_img.size, Image.LANCZOS)
 
-    # Alpha-blend the contour onto the drawing
-    blended = Image.blend(drawing_img, contour_img, alpha=alpha)
+    # Alpha-composite the contour onto the drawing (respects per-pixel alpha)
+    blended = Image.alpha_composite(drawing_img, contour_img)
     blended.save(output_path)
 
     return output_path

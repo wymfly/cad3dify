@@ -396,11 +396,11 @@ class SmartRefiner:
 
                     overlay_path = os.path.join(tmp_dir, "overlay.png")
                     overlay_contour_on_drawing(
-                        drawing_path, contour_path, overlay_path, alpha=0.6
+                        drawing_path, contour_path, overlay_path
                     )
 
                     # Load overlay as ImageData for VL re-analysis
-                    overlay_img = ImageData.from_file(overlay_path)
+                    overlay_img = ImageData.load_from_file(overlay_path)
                     overlay_comparison = chain.invoke({
                         "drawing_spec": drawing_spec.to_prompt_text(),
                         "code": code,

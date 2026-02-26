@@ -89,9 +89,9 @@ class PrintabilityResult(BaseModel):
     issues: list[PrintIssue]
     material_volume_cm3: Optional[float] = None
     bounding_box: Optional[dict[str, float]] = None
-    # Advanced analysis fields
-    orientation: Optional[dict] = None
-    support_advice: Optional[dict] = None
-    material_estimate: Optional[dict] = None
-    time_estimate: Optional[dict] = None
-    corrections: list[dict] = Field(default_factory=list)
+    # Advanced analysis fields (structured types defined in backend.core.printability)
+    orientation: Optional[dict[str, object]] = None
+    support_advice: Optional[dict[str, object]] = None
+    material_estimate: Optional[dict[str, object]] = None
+    time_estimate: Optional[dict[str, object]] = None
+    corrections: list[dict[str, object]] = Field(default_factory=list)

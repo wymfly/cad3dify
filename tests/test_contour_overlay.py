@@ -68,29 +68,31 @@ class TestOverlayContourOnDrawing:
         drawing.save(d_path)
         contour.save(c_path)
 
-        result = overlay_contour_on_drawing(d_path, c_path, o_path, alpha=0.6)
+        result = overlay_contour_on_drawing(d_path, c_path, o_path)
         assert result == o_path
         assert Path(o_path).exists()
 
-    def test_different_alpha(self, tmp_path):
+    def test_alpha_composite_preserves_transparency(self, tmp_path):
+        """alpha_composite respects per-pixel alpha from contour."""
         from PIL import Image
 
-        drawing = Image.new("RGB", (100, 100), (255, 255, 255))
-        contour = Image.new("RGBA", (100, 100), (255, 0, 0, 200))
+        drawing = Image.new("RGBA", (100, 100), (255, 255, 255, 255))
+        # Semi-transparent red contour
+        contour = Image.new("RGBA", (100, 100), (255, 0, 0, 128))
 
         d_path = str(tmp_path / "d.png")
         c_path = str(tmp_path / "c.png")
+        o_path = str(tmp_path / "out.png")
 
         drawing.save(d_path)
         contour.save(c_path)
 
-        out_low = str(tmp_path / "low.png")
-        out_high = str(tmp_path / "high.png")
-
-        overlay_contour_on_drawing(d_path, c_path, out_low, alpha=0.3)
-        overlay_contour_on_drawing(d_path, c_path, out_high, alpha=0.9)
-        assert Path(out_low).exists()
-        assert Path(out_high).exists()
+        overlay_contour_on_drawing(d_path, c_path, o_path)
+        result = Image.open(o_path)
+        # Result should be blended — not pure red, not pure white
+        pixel = result.getpixel((50, 50))
+        assert pixel[0] > 127  # some red
+        assert pixel[0] < 256  # not saturated from simple blend
 
     def test_size_mismatch_resizes(self, tmp_path):
         """Contour should be resized to match drawing dimensions."""

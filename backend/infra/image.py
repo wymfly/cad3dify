@@ -52,6 +52,16 @@ class ImageData(BaseModel):
         dst.save(output, format=self.type)
         return ImageData(data=base64.b64encode(output.getvalue()).decode("utf-8"), type=self.type)
 
+    def save(self, file_path: str) -> None:
+        """Save image data to a file.
+
+        Args:
+            file_path: Destination file path.
+        """
+        raw = base64.b64decode(self.data)
+        with open(file_path, "wb") as f:
+            f.write(raw)
+
     def convert(self, type: ImageTypes) -> "ImageData":
         """画像データを指定された形式に変換する
 

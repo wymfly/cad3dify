@@ -50,7 +50,7 @@ class TestDeepCADConverter:
         code = commands_to_cadquery(cmds)
         assert "import cadquery as cq" in code
         assert "XY" in code
-        assert "extrude(10)" in code
+        assert "result = result.extrude(10)" in code
 
     def test_commands_unknown_op_skipped(self):
         cmds = [DeepCADCommand(type="unknown_op", params={})]
@@ -133,7 +133,8 @@ class TestDataValidator:
     def test_valid_code_compiles(self):
         r = validate_sample("s1", "x = 1 + 2")
         assert r.compiles
-        assert r.executes
+        # No exec_fn → executes is False (only compilation verified)
+        assert not r.executes
 
     def test_syntax_error(self):
         r = validate_sample("s1", "def f(:\n  pass")

@@ -53,13 +53,7 @@ code_template: |
   ln = {{ length }}
   wt = {{ wall_thickness }}
 
-  # 底部截面：圆形
-  bottom = cq.Workplane("XY").circle(cd / 2)
-
-  # 顶部截面：矩形（带圆角）
-  top = cq.Workplane("XY").workplane(offset=ln).rect(rw, rh)
-
-  # Loft 过渡
+  # Loft 过渡：底部圆形 → 顶部矩形
   result = cq.Workplane("XY").circle(cd / 2).workplane(offset=ln).rect(rw, rh).loft()
 
   {% if wall_thickness > 0 %}

@@ -12,8 +12,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DeepCADCommand:
-    """Single DeepCAD command (extrude/revolve/fillet/chamfer)."""
-    type: str  # "extrude", "revolve", "fillet", "chamfer"
+    """Single DeepCAD command.
+
+    Supported types: create_sketch, add_line, add_arc, close_sketch,
+    extrude, revolve, fillet, chamfer.
+    """
+    type: str
     params: dict
 
 
@@ -26,7 +30,13 @@ class ConversionResult:
     error: Optional[str] = None
 
 
-# Mapping from DeepCAD operation types to CadQuery code patterns
+# Operations that start a new chain assignment vs. continue the current chain.
+# "create_sketch" produces `result = ...`; all others produce `result = result...`.
+_CHAIN_START_OPS = {"create_sketch"}
+
+# Mapping from DeepCAD operation types to CadQuery code patterns.
+# Chain-start ops produce full assignments; continuation ops are method calls
+# that will be appended to `result = result` by commands_to_cadquery.
 _OP_TEMPLATES: dict[str, str] = {
     "create_sketch": "result = cq.Workplane('{plane}')",
     "add_line": ".lineTo({x}, {y})",
@@ -52,7 +62,12 @@ def parse_deepcad_record(record: dict) -> list[DeepCADCommand]:
 
 
 def commands_to_cadquery(commands: list[DeepCADCommand]) -> str:
-    """Convert DeepCAD commands to CadQuery Python code."""
+    """Convert DeepCAD commands to CadQuery Python code.
+
+    Chain-start operations (``create_sketch``) produce a fresh assignment.
+    Continuation operations produce ``result = result.<method>(...)`` so the
+    generated code is syntactically valid Python.
+    """
     lines = ["import cadquery as cq", ""]
 
     for cmd in commands:
@@ -61,10 +76,16 @@ def commands_to_cadquery(commands: list[DeepCADCommand]) -> str:
             logger.warning("Unknown DeepCAD op: %s", cmd.type)
             continue
         try:
-            line = template.format(**cmd.params)
-            lines.append(line)
+            fragment = template.format(**cmd.params)
         except KeyError as e:
             logger.warning("Missing param %s for op %s", e, cmd.type)
+            continue
+
+        if cmd.type in _CHAIN_START_OPS:
+            lines.append(fragment)
+        else:
+            # Continuation: wrap as `result = result.<call>`
+            lines.append(f"result = result{fragment}")
 
     lines.append("")
     lines.append('cq.exporters.export(result, "{{ output_filename }}")')

@@ -54,10 +54,11 @@ def validate_sample(
             error=exec_err,
         )
 
+    # No exec_fn provided — only compilation was verified.
     return ValidationResult(
         source_id=source_id,
         compiles=True,
-        executes=True,  # skip exec if no exec_fn
+        executes=False,
     )
 
 

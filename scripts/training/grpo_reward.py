@@ -68,27 +68,31 @@ def sample_points_from_step(
     step_path: str,
     n_points: int = 2048,
 ) -> Optional[np.ndarray]:
-    """Sample surface points from a STEP file.
+    """Sample random points within the bounding box of a STEP model.
 
-    Uses CadQuery to load the shape and sample points on faces.
-    Returns None if loading fails.
+    This is a **bounding-box uniform sampling** approximation — points are
+    *not* guaranteed to lie on the surface.  Useful as a rough proxy for
+    Chamfer Distance reward computation.
+
+    Returns ``None`` if loading fails.
 
     .. note::
-       Requires CadQuery to be available. In tests, mock this function.
+       Requires CadQuery to be available.  In tests, mock this function.
     """
     try:
         import cadquery as cq
         shape = cq.importers.importStep(step_path)
-        # Sample bounding box points as approximation
         bb = shape.val().BoundingBox()
         rng = np.random.default_rng(42)
         points = rng.uniform(
             low=[bb.xmin, bb.ymin, bb.zmin],
             high=[bb.xmax, bb.ymax, bb.zmax],
-            size=(n_points * 10, 3),
+            size=(n_points, 3),
         )
-        # Filter to points near surface (simplified)
-        return points[:n_points]
+        return points
+    except ImportError:
+        logger.error("CadQuery not available — cannot sample points")
+        return None
     except Exception as e:
         logger.error("Failed to sample points from %s: %s", step_path, e)
         return None
