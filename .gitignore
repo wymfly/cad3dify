@@ -1,2 +1,22 @@
 __pycache__
 .env
+*.pyc
+.venv/
+dist/
+*.egg-info/
+
+# Claude Code
+.claude/settings.json
+
+# IDE
+.vscode/
+.idea/
+
+# Temp outputs
+*.step
+*.stl
+*.3mf
+temp.*
+output.*
+scripts/output.*
+scripts/temp.*
