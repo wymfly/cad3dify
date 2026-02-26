@@ -1,4 +1,5 @@
-import { Typography, Empty } from 'antd';
+import { Typography } from 'antd';
+import PrintConfigPanel from './PrintConfigPanel.tsx';
 
 const { Title } = Typography;
 
@@ -6,7 +7,7 @@ export default function Settings() {
   return (
     <div>
       <Title level={3}>设置</Title>
-      <Empty description="设置页面即将上线" style={{ marginTop: 48 }} />
+      <PrintConfigPanel />
     </div>
   );
 }
