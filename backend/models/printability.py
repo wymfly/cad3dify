@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
@@ -89,3 +89,9 @@ class PrintabilityResult(BaseModel):
     issues: list[PrintIssue]
     material_volume_cm3: Optional[float] = None
     bounding_box: Optional[dict[str, float]] = None
+    # Advanced analysis fields
+    orientation: Optional[dict] = None
+    support_advice: Optional[dict] = None
+    material_estimate: Optional[dict] = None
+    time_estimate: Optional[dict] = None
+    corrections: list[dict] = Field(default_factory=list)
