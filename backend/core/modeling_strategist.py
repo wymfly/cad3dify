@@ -15,6 +15,7 @@ from ..knowledge.part_types import DrawingSpec, PartType
 
 if TYPE_CHECKING:
     from ..infra.embedding import EmbeddingStore
+    from ..infra.rag import RAGPipeline
 
 
 # ---------------------------------------------------------------------------
@@ -98,8 +99,13 @@ class ModelingStrategist:
     falls back to the original Jaccard-similarity algorithm.
     """
 
-    def __init__(self, embedding_store: EmbeddingStore | None = None) -> None:
+    def __init__(
+        self,
+        embedding_store: EmbeddingStore | None = None,
+        rag_pipeline: RAGPipeline | None = None,
+    ) -> None:
         self._embedding_store = embedding_store
+        self._rag_pipeline = rag_pipeline
 
     def select(
         self,
@@ -123,7 +129,17 @@ class ModelingStrategist:
                 examples=[],
             )
 
-        # Try vector retrieval first when an embedding store is available.
+        # Try RAG pipeline first (has full search capabilities).
+        if self._rag_pipeline is not None and len(self._rag_pipeline) > 0:
+            examples = self._select_by_rag(spec, max_examples)
+            if examples:
+                return ModelingContext(
+                    drawing_spec=spec,
+                    strategy=strategy,
+                    examples=examples,
+                )
+
+        # Try legacy embedding store (backward compat).
         if self._embedding_store is not None and len(self._embedding_store) > 0:
             examples = self._select_by_vector(spec, max_examples)
             if examples:
@@ -179,6 +195,27 @@ class ModelingStrategist:
             strategy=strategy,
             examples=[(ex.description, ex.code) for ex in top],
         )
+
+    # -- private: RAG path ----------------------------------------------------
+
+    def _select_by_rag(
+        self,
+        spec: DrawingSpec,
+        max_examples: int,
+    ) -> list[tuple[str, str]]:
+        """Retrieve examples via the RAG pipeline.
+
+        Uses ``spec_to_embedding_text`` to convert the spec to a query string,
+        then delegates to ``RAGPipeline.search()``.  Returns an empty list when
+        the pipeline yields no results -- callers should fall back to Jaccard.
+        """
+        from ..infra.embedding import spec_to_embedding_text
+
+        query = spec_to_embedding_text(spec)
+        results = self._rag_pipeline.search(query, top_k=max_examples)  # type: ignore[union-attr]
+        if not results:
+            return []
+        return [(r.description, r.code) for r in results]
 
     # -- private: vector path -------------------------------------------------
 
