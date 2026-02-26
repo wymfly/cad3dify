@@ -54,12 +54,12 @@ class TestExampleModules:
     @pytest.mark.parametrize(
         "examples, min_count",
         [
-            (ROTATIONAL_EXAMPLES, 4),
-            (PLATE_EXAMPLES, 4),
-            (BRACKET_EXAMPLES, 3),
-            (HOUSING_EXAMPLES, 3),
+            (ROTATIONAL_EXAMPLES, 8),
+            (PLATE_EXAMPLES, 6),
+            (BRACKET_EXAMPLES, 6),
+            (HOUSING_EXAMPLES, 5),
             (GEAR_EXAMPLES, 3),
-            (GENERAL_EXAMPLES, 3),
+            (GENERAL_EXAMPLES, 5),
         ],
     )
     def test_count(
@@ -120,7 +120,7 @@ class TestTotalCount:
             for part_type, examples in EXAMPLES_BY_TYPE.items()
             if part_type != PartType.ROTATIONAL_STEPPED  # 共享，不重复计数
         )
-        assert total >= 20, f"Expected ≥20 examples, got {total}"
+        assert total >= 36, f"Expected ≥36 examples, got {total}"
 
 
 # ---------------------------------------------------------------------------

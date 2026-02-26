@@ -112,4 +112,112 @@ cq.exporters.export(result, "${output_filename}")
 """,
         features=frozenset({"extrude", "rib", "hole_pattern"}),
     ),
+    TaggedExample(
+        description="带沉头孔的安装板：180x120x12，四角4×φ6.5沉头孔（沉头φ12深6），中心开槽50x20深5，R3外缘圆角",
+        code="""\
+import cadquery as cq
+
+# 尺寸参数
+length, width, thickness = 180, 120, 12
+hole_d = 6.5
+cbore_d, cbore_depth = 12, 6
+slot_l, slot_w, slot_d = 50, 20, 5
+margin = 15
+fillet_r = 3
+
+# 底板
+result = cq.Workplane("XY").box(length, width, thickness)
+
+# 四角沉头孔
+result = (result.faces(">Z").workplane()
+    .rect(length - 2 * margin, width - 2 * margin, forConstruction=True)
+    .vertices()
+    .cboreHole(hole_d, cbore_d, cbore_depth))
+
+# 中心开槽
+result = (result.faces(">Z").workplane()
+    .rect(slot_l, slot_w)
+    .cutBlind(-slot_d))
+
+# 外缘圆角
+try:
+    result = result.edges("|Z").fillet(fillet_r)
+except Exception:
+    pass
+
+cq.exporters.export(result, "${output_filename}")
+""",
+        features=frozenset({"extrude", "counterbore", "slot", "fillet"}),
+    ),
+    TaggedExample(
+        description="L形切角板：外廓150x100x10，切去右上角60x40三角形，6×φ8安装孔均布",
+        code="""\
+import cadquery as cq
+
+# 尺寸参数
+length, width, thickness = 150, 100, 10
+cut_x, cut_y = 60, 40  # 右上角切除尺寸
+hole_d = 8
+n_holes = 6
+
+# L形轮廓（从左下角逆时针）
+pts = [
+    (0, 0),
+    (length, 0),
+    (length, width - cut_y),
+    (length - cut_x, width),
+    (0, width),
+]
+result = cq.Workplane("XY").polyline(pts).close().extrude(thickness)
+
+# 沿左侧和底部均布安装孔
+hole_positions = [
+    (20, 20),
+    (75, 20),
+    (130, 20),
+    (20, 80),
+    (75, 60),
+    (120, 50),
+]
+for px, py in hole_positions:
+    hole = cq.Workplane("XY").center(px, py).circle(hole_d / 2).extrude(thickness + 1)
+    result = result.cut(hole)
+
+cq.exporters.export(result, "${output_filename}")
+""",
+        features=frozenset({"extrude", "polyline", "hole_pattern"}),
+    ),
+    TaggedExample(
+        description="圆环垫板：外径φ120，内径φ60，厚8，8×φ8均布螺栓孔PCD90，上下面C0.5倒角",
+        code="""\
+import cadquery as cq
+import math
+
+# 尺寸参数
+d_outer, d_inner = 120, 60
+thickness = 8
+n_bolts, d_bolt, pcd = 8, 8, 90
+chamfer = 0.5
+
+# 圆环基体
+result = cq.Workplane("XY").circle(d_outer / 2).circle(d_inner / 2).extrude(thickness)
+
+# 均布螺栓孔
+for i in range(n_bolts):
+    angle = math.radians(i * 360 / n_bolts)
+    x, y = (pcd / 2) * math.cos(angle), (pcd / 2) * math.sin(angle)
+    hole = cq.Workplane("XY").center(x, y).circle(d_bolt / 2).extrude(thickness + 1)
+    result = result.cut(hole)
+
+# 上下面倒角
+try:
+    result = result.edges(">Z").chamfer(chamfer)
+    result = result.edges("<Z").chamfer(chamfer)
+except Exception:
+    pass
+
+cq.exporters.export(result, "${output_filename}")
+""",
+        features=frozenset({"extrude", "bore", "hole_pattern", "chamfer"}),
+    ),
 ]

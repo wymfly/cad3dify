@@ -95,4 +95,108 @@ cq.exporters.export(result, "${output_filename}")
 """,
         features=frozenset({"extrude", "fillet", "chamfer"}),
     ),
+    TaggedExample(
+        description="六角螺母：对边距30（M20），高16，中心螺纹孔φ20",
+        code="""\
+import cadquery as cq
+import math
+
+# 六角螺母参数
+across_flats = 30   # 对边距（S尺寸）
+height = 16
+bore_d = 20         # 螺纹公称直径
+chamfer = 1
+
+# 对角距 = 对边距 / cos(30°)
+across_corners = across_flats / math.cos(math.radians(30))
+
+# 正六边形截面 extrude
+result = (cq.Workplane("XY")
+    .polygon(6, across_corners)
+    .extrude(height))
+
+# 中心螺纹孔
+result = result.faces(">Z").workplane().hole(bore_d)
+
+# 上下倒角
+try:
+    result = result.edges(">Z").chamfer(chamfer)
+    result = result.edges("<Z").chamfer(chamfer)
+except Exception:
+    pass
+
+cq.exporters.export(result, "${output_filename}")
+""",
+        features=frozenset({"extrude", "polygon", "bore", "chamfer"}),
+    ),
+    TaggedExample(
+        description="T形块：底座80x60x20，立柱30x60x40居中，顶部R3圆角，底部4×φ8安装孔",
+        code="""\
+import cadquery as cq
+
+# 底座参数
+base_l, base_w, base_h = 80, 60, 20
+# 立柱参数
+col_l, col_w, col_h = 30, 60, 40
+hole_d = 8
+margin = 12
+fillet_r = 3
+
+# 1. 底座
+result = cq.Workplane("XY").box(base_l, base_w, base_h)
+
+# 2. 立柱（从底座顶面居中向上生长）
+column = (cq.Workplane("XY")
+    .workplane(offset=base_h / 2)
+    .box(col_l, col_w, col_h))
+result = result.union(column)
+
+# 3. 立柱顶部圆角
+try:
+    result = result.edges(">Z").fillet(fillet_r)
+except Exception:
+    pass
+
+# 4. 底座安装孔（四角）
+result = (result.faces("<Z").workplane()
+    .rect(base_l - 2 * margin, base_w - 2 * margin, forConstruction=True)
+    .vertices().hole(hole_d))
+
+cq.exporters.export(result, "${output_filename}")
+""",
+        features=frozenset({"extrude", "union", "fillet", "hole_pattern"}),
+    ),
+    TaggedExample(
+        description="阶梯垫块：底层60x60x10，中层40x40x15居中，顶层20x20x10居中，各层过渡R2圆角",
+        code="""\
+import cadquery as cq
+
+# 三层参数
+layers = [
+    (60, 60, 10),  # 底层 (l, w, h)
+    (40, 40, 15),  # 中层
+    (20, 20, 10),  # 顶层
+]
+fillet_r = 2
+
+# 逐层构建并 union
+result = cq.Workplane("XY").box(layers[0][0], layers[0][1], layers[0][2])
+z_offset = layers[0][2] / 2
+for l, w, h in layers[1:]:
+    block = (cq.Workplane("XY")
+        .workplane(offset=z_offset)
+        .box(l, w, h))
+    result = result.union(block)
+    z_offset += h
+
+# 各层过渡圆角
+try:
+    result = result.edges("|Z").fillet(fillet_r)
+except Exception:
+    pass
+
+cq.exporters.export(result, "${output_filename}")
+""",
+        features=frozenset({"extrude", "union", "fillet"}),
+    ),
 ]

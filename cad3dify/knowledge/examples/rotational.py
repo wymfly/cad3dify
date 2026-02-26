@@ -159,4 +159,176 @@ cq.exporters.export(result, "${output_filename}")
 """,
         features=frozenset({"revolve", "bore", "chamfer"}),
     ),
+    TaggedExample(
+        description="带键槽的法兰盘：φ120法兰厚15，φ50轮毂高30，中心孔φ20，6×φ10螺栓孔PCD90，键槽6×3.5×25，R2圆角",
+        code="""\
+import cadquery as cq
+import math
+
+# 尺寸参数
+d_flange, h_flange = 120, 15
+d_hub, h_hub = 50, 30
+d_bore = 20
+n_bolts, d_bolt, pcd = 6, 10, 90
+key_w, key_d, key_l = 6, 3.5, 25
+r_fillet = 2
+
+r_flange, r_hub, r_bore = d_flange / 2, d_hub / 2, d_bore / 2
+
+# 1. revolve profile 一次成型（法兰 + 轮毂 + 中心孔）
+profile_pts = [
+    (r_bore, 0),
+    (r_flange, 0),
+    (r_flange, h_flange),
+    (r_hub, h_flange),
+    (r_hub, h_flange + h_hub),
+    (r_bore, h_flange + h_hub),
+]
+result = cq.Workplane("XZ").polyline(profile_pts).close().revolve(360, (0, 0, 0), (0, 1, 0))
+
+# 2. 法兰-轮毂过渡圆角
+try:
+    result = result.edges(
+        cq.selectors.NearestToPointSelector((r_hub, 0, h_flange))
+    ).fillet(r_fillet)
+except Exception:
+    pass
+
+# 3. 螺栓孔（穿过法兰）
+for i in range(n_bolts):
+    angle = math.radians(i * 360 / n_bolts)
+    x, y = (pcd / 2) * math.cos(angle), (pcd / 2) * math.sin(angle)
+    hole = cq.Workplane("XY").center(x, y).circle(d_bolt / 2).extrude(h_flange + 1)
+    result = result.cut(hole)
+
+# 4. 键槽（内孔壁向外切）
+key_slot = (cq.Workplane("XY")
+    .center(0, r_bore + key_d / 2)
+    .rect(key_w, key_d)
+    .extrude(key_l))
+result = result.cut(key_slot)
+
+cq.exporters.export(result, "${output_filename}")
+""",
+        features=frozenset({"revolve", "bore", "keyway", "hole_pattern", "fillet"}),
+    ),
+    TaggedExample(
+        description="薄壁法兰：外径φ150，内径φ142，法兰厚8，管段长40壁厚4，R1.5圆角",
+        code="""\
+import cadquery as cq
+
+# 尺寸参数
+d_flange = 150
+d_pipe_outer = 142
+wall_t = 4
+d_pipe_inner = d_pipe_outer - 2 * wall_t  # φ134
+h_flange = 8
+h_pipe = 40
+r_fillet = 1.5
+
+r_flange = d_flange / 2
+r_pipe_o = d_pipe_outer / 2
+r_pipe_i = d_pipe_inner / 2
+
+# revolve 薄壁截面
+profile_pts = [
+    (r_pipe_i, 0),
+    (r_flange, 0),
+    (r_flange, h_flange),
+    (r_pipe_o, h_flange),
+    (r_pipe_o, h_flange + h_pipe),
+    (r_pipe_i, h_flange + h_pipe),
+]
+result = cq.Workplane("XZ").polyline(profile_pts).close().revolve(360, (0, 0, 0), (0, 1, 0))
+
+# 法兰-管段过渡圆角
+try:
+    result = result.edges(
+        cq.selectors.NearestToPointSelector((r_pipe_o, 0, h_flange))
+    ).fillet(r_fillet)
+except Exception:
+    pass
+
+cq.exporters.export(result, "${output_filename}")
+""",
+        features=frozenset({"revolve", "bore", "fillet"}),
+    ),
+    TaggedExample(
+        description="圆柱滚子：外径φ30，长40，两端倒角C0.5",
+        code="""\
+import cadquery as cq
+
+# 尺寸参数
+diameter = 30
+length = 40
+chamfer = 0.5
+
+radius = diameter / 2
+
+# revolve 实心圆柱
+profile_pts = [
+    (0, 0),
+    (radius, 0),
+    (radius, length),
+    (0, length),
+]
+result = cq.Workplane("XZ").polyline(profile_pts).close().revolve(360, (0, 0, 0), (0, 1, 0))
+
+# 两端倒角
+try:
+    result = result.edges("<Y").chamfer(chamfer)
+    result = result.edges(">Y").chamfer(chamfer)
+except Exception:
+    pass
+
+cq.exporters.export(result, "${output_filename}")
+""",
+        features=frozenset({"revolve", "chamfer"}),
+    ),
+    TaggedExample(
+        description="带螺纹孔的端盖：φ100法兰厚12，中心凸台φ50高8，中心孔φ16，4×M8螺纹孔PCD75深10，外缘C1倒角",
+        code="""\
+import cadquery as cq
+import math
+
+# 尺寸参数
+d_flange, h_flange = 100, 12
+d_boss, h_boss = 50, 8
+d_bore = 16
+n_holes, d_thread, pcd = 4, 8, 75
+thread_depth = 10
+chamfer = 1
+
+r_flange, r_boss, r_bore = d_flange / 2, d_boss / 2, d_bore / 2
+
+# 1. revolve profile（法兰 + 凸台 + 中心孔）
+profile_pts = [
+    (r_bore, 0),
+    (r_flange, 0),
+    (r_flange, h_flange),
+    (r_boss, h_flange),
+    (r_boss, h_flange + h_boss),
+    (r_bore, h_flange + h_boss),
+]
+result = cq.Workplane("XZ").polyline(profile_pts).close().revolve(360, (0, 0, 0), (0, 1, 0))
+
+# 2. 外缘倒角
+try:
+    result = result.edges(
+        cq.selectors.NearestToPointSelector((r_flange, 0, 0))
+    ).chamfer(chamfer)
+except Exception:
+    pass
+
+# 3. 螺纹孔（盲孔，从法兰底面打入）
+for i in range(n_holes):
+    angle = math.radians(i * 360 / n_holes)
+    x, y = (pcd / 2) * math.cos(angle), (pcd / 2) * math.sin(angle)
+    hole = cq.Workplane("XY").center(x, y).circle(d_thread / 2).extrude(thread_depth)
+    result = result.cut(hole)
+
+cq.exporters.export(result, "${output_filename}")
+""",
+        features=frozenset({"revolve", "bore", "hole_pattern", "chamfer"}),
+    ),
 ]
