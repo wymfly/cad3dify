@@ -1,8 +1,9 @@
 # V2 质量提升方向
 
 > **状态:** 设计完成，按优先级分批实施
-> **日期:** 2026-02-26
+> **日期:** 2026-02-26（更新：补充 3D 打印就绪方案）
 > **前置:** P0/P1 已实施，SmartRefiner 已重构为零风险模式
+> **关联:** 当前版本能力说明见 `docs/V2-CURRENT-CAPABILITIES.md`
 
 ---
 
@@ -373,6 +374,115 @@ if new_score < prev_score * 0.9:  # 退化超过 10%
 
 ---
 
+## Stage 5（新增）：3D 打印就绪
+
+> 对标专业 CAD 软件（Siemens NX / SolidWorks），缩小 3D 打印场景的差距。
+> 详细差距分析见 `docs/V2-CURRENT-CAPABILITIES.md` 第 8 节。
+
+### 5.1 STL/3MF 输出支持
+
+**问题：** 当前仅输出 STEP 格式，3D 打印需要 STL 或 3MF。用户需额外使用切片软件转换。
+
+**方案：**
+1. 利用 CadQuery/OCCT 内置的 mesh 导出能力
+2. 支持可配置的网格精度（线性偏差 / 角度偏差）
+3. 3MF 优先于 STL（支持颜色、多零件、精确单位）
+
+```python
+def export_for_printing(
+    step_path: str,
+    output_path: str,
+    format: str = "3mf",  # "stl" | "3mf"
+    linear_deflection: float = 0.1,  # mm
+    angular_deflection: float = 0.5,  # degrees
+) -> None:
+    import cadquery as cq
+    shape = cq.importers.importStep(step_path)
+    if format == "stl":
+        cq.exporters.export(shape, output_path, exportType="STL",
+                           tolerance=linear_deflection,
+                           angularTolerance=angular_deflection)
+    elif format == "3mf":
+        # CadQuery 2.x 支持 3MF via OCCT
+        cq.exporters.export(shape, output_path, exportType="3MF")
+```
+
+**预估提升：** 直接满足 3D 打印用户需求
+**复杂度：** 低 — CadQuery 已有导出能力，仅需封装
+
+### 5.2 可打印性基础检查
+
+**问题：** 生成的模型可能包含无法打印的特征（过薄壁、大悬挑、过小孔径）。
+
+**方案：**
+
+```python
+@dataclass
+class PrintabilityResult:
+    printable: bool
+    warnings: list[str]
+    min_wall_thickness: float  # mm
+    max_overhang_angle: float  # degrees
+    min_feature_size: float    # mm
+
+def check_printability(
+    step_path: str,
+    printer_config: dict | None = None,
+) -> PrintabilityResult:
+    """基础可打印性检查。"""
+    config = printer_config or {
+        "min_wall": 0.8,       # FDM 典型最小壁厚
+        "max_overhang": 45,    # 无支撑最大悬挑角
+        "min_feature": 0.4,    # 最小可打印特征
+    }
+    # 1. 壁厚检查：shell 零件的壁厚是否 ≥ min_wall
+    # 2. 悬挑角度：检测面法线与 Z 轴夹角
+    # 3. 最小特征：孔径、筋厚是否 ≥ min_feature
+    ...
+```
+
+**检查项：**
+
+| 检查项 | FDM 阈值 | SLA 阈值 | 检查方法 |
+|--------|---------|---------|---------|
+| 最小壁厚 | ≥ 0.8mm | ≥ 0.3mm | 面对距离分析 |
+| 悬挑角度 | ≤ 45° | ≤ 30° | 面法线与 Z 轴夹角 |
+| 最小孔径 | ≥ 0.5mm | ≥ 0.2mm | 圆柱面半径提取 |
+| 最小筋厚 | ≥ 1.0mm | ≥ 0.5mm | 面间距分析 |
+| 底面面积 | 足够稳定 | — | 最低 Z 面面积 |
+
+**预估提升：** 从「能生成」到「能打印」的关键一步
+**复杂度：** 中等 — 壁厚分析需要面对距离计算
+
+### 5.3 渐开线齿轮参数化
+
+**问题：** 当前齿轮示例使用矩形近似齿形，3D 打印后无法真正啮合。
+
+**方案：** 用标准渐开线公式生成齿廓，替代矩形近似：
+
+```python
+def involute_gear_profile(
+    module: float,       # 模数 m
+    teeth: int,          # 齿数 z
+    pressure_angle: float = 20.0,  # 压力角（度）
+) -> cq.Wire:
+    """生成标准渐开线齿轮的齿廓 Wire。"""
+    import math
+    r_pitch = module * teeth / 2           # 分度圆半径
+    r_base = r_pitch * math.cos(math.radians(pressure_angle))  # 基圆半径
+    r_addendum = r_pitch + module          # 齿顶圆半径
+    r_dedendum = r_pitch - 1.25 * module   # 齿根圆半径
+
+    # 生成单齿渐开线 → 阵列 → 闭合 Wire
+    ...
+```
+
+**预估提升：** 齿轮从「展示用」升级为「功能性」
+**复杂度：** 中 — 数学公式明确，CadQuery 几何操作可实现
+**依赖：** 1.5.1 知识库扩充（替换现有齿轮示例）
+
+---
+
 ## 跨阶段：系统性提升
 
 ### X.1 评测基准（前提条件）
@@ -400,30 +510,33 @@ if new_score < prev_score * 0.9:  # 退化超过 10%
 
 ## 优先级总览
 
-### 第一梯队：立竿见影
+### 第一梯队：立竿见影（低风险、高收益）
 
 | # | 方案 | 阶段 | 预估提升 | 复杂度 |
 |---|------|------|---------|--------|
-| 1 | 多路生成 + 择优 | Stage 2 | 高（概率提升最直接） | 低-中 |
+| 1 | 多路生成 + 择优（Best-of-N） | Stage 2 | 高（概率提升最直接） | 低-中 |
 | 2 | 多视角渲染 | Stage 4 | 高（消除单角度盲区） | 低-中 |
 | 3 | 体积估算 | Stage 3.5 | 中（5 行代码可用） | 低 |
+| 4 | STL/3MF 输出支持 | Stage 5 | 直接满足 3D 打印需求 | 低 |
 
-### 第二梯队：稳定提升
+### 第二梯队：稳定提升（中等工作量）
 
 | # | 方案 | 阶段 | 预估提升 | 复杂度 |
 |---|------|------|---------|--------|
-| 4 | OCR 辅助标注提取 | Stage 1 | 高（标注漏读主因） | 中等 |
-| 5 | 扩充知识库 | Stage 1.5 | 高（代码质量地基） | 中 |
-| 6 | 回滚机制 | Stage 4 | 中（安全网） | 低 |
-| 7 | 拓扑验证 | Stage 3.5 | 中高（结构性错误） | 中等 |
+| 5 | OCR 辅助标注提取 | Stage 1 | 高（标注漏读主因） | 中等 |
+| 6 | 扩充知识库 | Stage 1.5 | 高（代码质量地基） | 中 |
+| 7 | 回滚机制 | Stage 4 | 中（安全网） | 低 |
+| 8 | 拓扑验证 | Stage 3.5 | 中高（结构性错误） | 中等 |
+| 9 | 可打印性基础检查 | Stage 5 | 从「能生成」到「能打印」 | 中等 |
 
 ### 第三梯队：长线投资
 
 | # | 方案 | 阶段 | 预估提升 | 复杂度 |
 |---|------|------|---------|--------|
-| 8 | 评测基准 | 跨阶段 | 前提条件 | 中 |
-| 9 | 多模型投票 | Stage 1 | 中高（API 成本换质量） | 低 |
-| 10 | 参数化模板 | Stage 1.5 | 高（消除结构性错误） | 中高 |
+| 10 | 评测基准 | 跨阶段 | 前提条件 | 中 |
+| 11 | 多模型投票 | Stage 1 | 中高（API 成本换质量） | 低 |
+| 12 | 参数化模板 | Stage 1.5 | 高（消除结构性错误） | 中高 |
+| 13 | 渐开线齿轮参数化 | Stage 5 | 齿轮升级为功能性 | 中 |
 
 ---
 
@@ -448,3 +561,18 @@ SmartRefiner 已重构为零风险模式（`b074d26`）：Layer 1/2 不再提前
 而是"覆盖不足"（对未见过的零件类型缺少参考示例）。
 
 解决方案：方案 1.5.1（扩充知识库）。
+
+---
+
+## 实施建议
+
+**总计 13 个方案**，建议实施顺序：
+
+1. **第一梯队（1-2 周）**：方案 1（Best-of-N）→ 方案 3（体积估算）→ 方案 4（STL/3MF 输出）→ 方案 2（多视角渲染）
+2. **第二梯队（2-3 周）**：方案 5（OCR 辅助）→ 方案 6（知识库扩充）→ 方案 7（回滚）→ 方案 8（拓扑验证）→ 方案 9（可打印性检查）
+3. **第三梯队（按需）**：方案 10（评测基准）→ 方案 11（多模型投票）→ 方案 12（参数化模板）→ 方案 13（渐开线齿轮）
+
+**关键依赖关系：**
+- 方案 10（评测基准）是量化其他方案效果的前提，建议尽早启动数据集构建
+- 方案 13（渐开线齿轮）依赖方案 6（知识库扩充）
+- 方案 9（可打印性检查）依赖方案 4（STL/3MF 输出）
