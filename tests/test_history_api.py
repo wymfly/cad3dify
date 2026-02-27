@@ -221,3 +221,32 @@ class TestDelete:
         assert resp2.status_code == 200
         assert resp2.json()["status"] == "failed"
         assert resp2.json()["error"] == "deleted"
+
+    async def test_delete_preserves_corrections(self, client: AsyncClient) -> None:
+        """Deleting a job should keep corrections accessible via detail endpoint."""
+        from backend.db.database import async_session
+        from backend.db.repository import create_correction
+
+        async with async_session() as session:
+            await _create_test_job(session, "del-with-corr")
+            await create_correction(
+                session,
+                job_id="del-with-corr",
+                field_path="part_type",
+                original_value="rotational",
+                corrected_value="plate",
+            )
+            await session.commit()
+
+        # Delete the job
+        resp = await client.delete("/api/jobs/del-with-corr")
+        assert resp.status_code == 200
+
+        # Corrections should still be visible in detail
+        resp2 = await client.get("/api/jobs/del-with-corr")
+        assert resp2.status_code == 200
+        data = resp2.json()
+        assert data["status"] == "failed"
+        assert data["error"] == "deleted"
+        assert len(data["corrections"]) == 1
+        assert data["corrections"][0]["field_path"] == "part_type"

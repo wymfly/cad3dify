@@ -1083,3 +1083,71 @@ class TestIntentParserIntegration:
         assert len(parsed[0]["params"]) > 0
         # No intent data when parser failed
         assert parsed[0].get("intent") is None
+
+
+# ===================================================================
+# Integration: precision path completed event includes printability
+# ===================================================================
+
+
+class TestPrecisionPrintability:
+    """Verify precision path completed SSE includes full printability data."""
+
+    async def test_precision_completed_has_printability_with_material_and_time(
+        self, client: TestClient, monkeypatch,
+    ) -> None:
+        """Confirm → completed event should include printability, material, time."""
+        import backend.api.generate as gen_mod
+
+        # Step 1: Text input to get a job
+        resp = client.post("/api/generate", json={"text": "做一个法兰盘"})
+        events = parse_sse_events(resp.text)
+        job_id = events[0]["job_id"]
+
+        # Step 2: Mock generation + printability
+        def _mock_gen(job, params, step_path):
+            Path(step_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(step_path).write_text("fake step")
+            return True
+
+        monkeypatch.setattr(gen_mod, "_run_template_generation", _mock_gen)
+        monkeypatch.setattr(
+            gen_mod,
+            "_convert_step_to_glb",
+            lambda s, g: Path(g).write_text("fake glb"),
+        )
+
+        printability = {
+            "printable": True,
+            "profile": "fdm_standard",
+            "issues": [],
+            "material_volume_cm3": 5.0,
+            "bounding_box": {"x": 100, "y": 100, "z": 20},
+            "material_estimate": {
+                "filament_weight_g": 12.5,
+                "filament_length_m": 4.2,
+                "cost_estimate_cny": 1.8,
+            },
+            "time_estimate": {
+                "total_minutes": 45.0,
+                "layer_count": 120,
+            },
+        }
+        monkeypatch.setattr(gen_mod, "_run_printability_check", lambda p: printability)
+
+        resp = client.post(
+            f"/api/generate/{job_id}/confirm",
+            json={"confirmed_params": {"outer_diameter": 100, "thickness": 16}},
+        )
+        events = parse_sse_events(resp.text)
+        completed = [e for e in events if e.get("status") == "completed"]
+        assert len(completed) == 1
+
+        p = completed[0].get("printability")
+        assert p is not None
+        assert p["printable"] is True
+        assert "material_estimate" in p
+        assert p["material_estimate"]["filament_weight_g"] == 12.5
+        assert "time_estimate" in p
+        assert p["time_estimate"]["total_minutes"] == 45.0
+        assert p["time_estimate"]["layer_count"] == 120

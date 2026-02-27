@@ -302,3 +302,35 @@ class TestPreviewCache:
     def test_invalidate_empty(self) -> None:
         count = invalidate_preview_cache()
         assert count == 0
+
+    def test_cache_hit_under_50ms(
+        self, client: TestClient, monkeypatch,
+    ) -> None:
+        """Cache hit should respond in under 50ms (no rendering)."""
+        import time
+        from unittest.mock import MagicMock
+
+        import backend.api.preview as prev_mod
+
+        mock_tpl = MagicMock()
+        mock_tpl.validate_params.return_value = []
+        monkeypatch.setattr(prev_mod, "_get_template", lambda name: mock_tpl)
+
+        # Pre-populate cache
+        params = {"outer_diameter": 80.0}
+        params_hash = hashlib.md5(
+            json.dumps(params, sort_keys=True).encode(),
+        ).hexdigest()
+        cache_key = f"rotational_flange_disk:{params_hash}"
+        _preview_cache[cache_key] = "/outputs/preview-fast/model.glb"
+
+        start = time.monotonic()
+        resp = client.post(
+            "/api/preview/parametric",
+            json={"template_name": "rotational_flange_disk", "params": params},
+        )
+        elapsed_ms = (time.monotonic() - start) * 1000
+
+        assert resp.status_code == 200
+        assert resp.json()["cached"] is True
+        assert elapsed_ms < 50, f"Cache hit took {elapsed_ms:.1f}ms, expected < 50ms"
