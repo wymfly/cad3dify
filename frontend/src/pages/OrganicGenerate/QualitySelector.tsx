@@ -45,7 +45,7 @@ export default function QualitySelector({
   return (
     <Space direction="vertical" style={{ width: '100%' }}>
       <div>
-        <Space size={4} align="center" style={{ marginBottom: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <Text strong>生成质量</Text>
           <HelpTip title="生成质量">
             <div>控制 3D 模型的精细程度，质量越高耗时越长。</div>
@@ -67,7 +67,7 @@ export default function QualitySelector({
             </table>
             <div style={{ marginTop: 4, color: '#d9f7be' }}>默认: 标准</div>
           </HelpTip>
-        </Space>
+        </div>
         <Radio.Group
           value={qualityMode}
           onChange={(e) => onQualityChange(e.target.value)}
@@ -78,7 +78,7 @@ export default function QualitySelector({
         />
       </div>
       <div>
-        <Space size={4} align="center" style={{ marginBottom: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <Text strong>生成引擎</Text>
           <HelpTip title="生成引擎">
             <div>选择后端 3D 生成服务。</div>
@@ -100,7 +100,7 @@ export default function QualitySelector({
             </table>
             <div style={{ marginTop: 4, color: '#d9f7be' }}>默认: 自动选择</div>
           </HelpTip>
-        </Space>
+        </div>
         <Select
           value={provider}
           onChange={onProviderChange}
