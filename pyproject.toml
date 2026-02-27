@@ -32,10 +32,12 @@ dependencies = [
     "trimesh>=4.5.0",
     "python-multipart>=0.0.22",
     "networkx>=3.4.2",
+    "manifold3d>=3.0.0",
 ]
 
 [project.optional-dependencies]
 vertexai = ["langchain-google-vertexai>=2.0.1,<3.0"]
+mesh-repair = ["pymeshlab>=2025.0"]
 
 [dependency-groups]
 dev = [
