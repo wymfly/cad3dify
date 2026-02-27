@@ -497,13 +497,15 @@ def analyze_drawing(
     Returns the DrawingSpec for user review before proceeding.
     """
     config = config or PRESETS["balanced"]
-    image_data = ImageData.from_filepath(image_filepath)
+    image_data = ImageData.load_from_file(image_filepath)
 
+    # DrawingAnalyzerChain is a LangChain SequentialChain — use .invoke()
     analyzer = DrawingAnalyzerChain(
         model_type=config.vl_model,
         temperature=config.vl_temperature,
     )
-    spec: DrawingSpec = analyzer.analyze(image_data)
+    result = analyzer.invoke({"image": image_data})
+    spec: DrawingSpec = result["drawing_spec"]
 
     if on_progress:
         on_progress("spec_extracted", {"spec": spec.model_dump()})
@@ -533,7 +535,7 @@ def generate_from_drawing_spec(
 
     # Stage 1.5: Strategy selection
     strategist = ModelingStrategist()
-    context = strategist.select_strategy(drawing_spec)
+    context = strategist.select(drawing_spec)  # .select() not .select_strategy()
     # ... Stage 2-4 (same as current generate_step_v2 lines 200-348) ...
 ```
 
@@ -635,6 +637,7 @@ async def confirm_drawing_spec(
     )
 
     async def event_generator():
+        bridge = PipelineBridge(job_id)  # Initialize SSE bridge for Stage 2
         try:
             confirmed_spec = DrawingSpec(**body.confirmed_spec)
             image_path = job.image_path  # Restored from Job record
@@ -979,6 +982,7 @@ def get_ocr_fn():
         def _paddle_ocr_fn(image_bytes: bytes) -> list:
             import tempfile
             from pathlib import Path
+            from backend.core.ocr_assist import OCRResult
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
                 f.write(image_bytes)
                 tmp_path = f.name
@@ -987,7 +991,7 @@ def get_ocr_fn():
                 if not result or not result[0]:
                     return []
                 return [
-                    {"text": line[1][0], "confidence": line[1][1], "bbox": line[0]}
+                    OCRResult(text=line[1][0], confidence=line[1][1], bbox=line[0])
                     for line in result[0]
                 ]
             finally:
@@ -1153,11 +1157,13 @@ git commit -m "feat: replace keyword matching with IntentParser + graceful fallb
 **Step 1: Add dependencies**
 
 ```toml
-[project.dependencies]
-# Add to existing list:
-"sqlalchemy[asyncio]>=2.0.0",
-"aiosqlite>=0.20.0",
-"alembic>=1.14.0",
+# pyproject.toml — add to existing [project] dependencies array:
+# dependencies = [
+#   ...existing...,
+#   "sqlalchemy[asyncio]>=2.0.0",
+#   "aiosqlite>=0.20.0",
+#   "alembic>=1.14.0",
+# ]
 ```
 
 ```bash
@@ -1420,6 +1426,22 @@ async def test_list_jobs_pagination():
 async def test_organic_job_crud():
     """OrganicJob CRUD lifecycle."""
     ...
+
+@pytest.mark.asyncio
+async def test_job_persists_after_engine_dispose():
+    """Simulate process restart: dispose engine, recreate, verify data survives."""
+    async with test_session() as session:
+        await create_job(session, "persist-test", input_type="drawing")
+    # Dispose engine (simulates process exit)
+    await engine.dispose()
+    # Recreate engine + session (simulates process restart)
+    new_engine = create_async_engine(DATABASE_URL, connect_args={"timeout": 30})
+    new_session_factory = async_sessionmaker(new_engine, class_=AsyncSession)
+    async with new_session_factory() as session:
+        fetched = await get_job(session, "persist-test")
+        assert fetched is not None
+        assert fetched.input_type == "drawing"
+    await new_engine.dispose()
 ```
 
 **Commit:**
@@ -1437,7 +1459,7 @@ git commit -m "test: add repository layer unit tests (P2.1 Task 6.8-6.9)"
 
 ```python
 # backend/api/history.py
-router = APIRouter(prefix="/api/jobs", tags=["history"])
+router = APIRouter(prefix="/jobs", tags=["history"])  # Note: /api prefix added by main.py
 
 @router.get("")
 async def list_jobs(
@@ -1512,7 +1534,7 @@ import hashlib
 import json
 from fastapi import APIRouter, HTTPException
 
-router = APIRouter(prefix="/api/preview", tags=["preview"])
+router = APIRouter(prefix="/preview", tags=["preview"])  # Note: /api prefix added by main.py
 
 _preview_cache: dict[str, str] = {}  # (template_name, params_hash) → glb_url
 
@@ -1544,6 +1566,23 @@ async def preview_parametric(body: PreviewRequest) -> PreviewResponse:
 
     _preview_cache[cache_key] = glb_url
     return PreviewResponse(glb_url=glb_url)
+
+
+def invalidate_preview_cache(template_name: str | None = None) -> int:
+    """Invalidate preview cache entries. Returns count of removed entries.
+
+    Args:
+        template_name: If provided, only invalidate entries for this template.
+                       If None, clear entire cache.
+    """
+    if template_name is None:
+        count = len(_preview_cache)
+        _preview_cache.clear()
+        return count
+    keys_to_remove = [k for k in _preview_cache if k.startswith(f"{template_name}:")]
+    for k in keys_to_remove:
+        del _preview_cache[k]
+    return len(keys_to_remove)
 
 
 def _render_preview(template_name: str, params: dict) -> str:
