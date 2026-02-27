@@ -5,6 +5,7 @@ import PipelineConfigBar, { DEFAULT_CONFIG } from '../../components/PipelineConf
 import Viewer3D from '../../components/Viewer3D/index.tsx';
 import ParamForm from '../../components/ParamForm/index.tsx';
 import ChatInput from './ChatInput.tsx';
+import DownloadButtons from './DownloadButtons.tsx';
 import GenerateWorkflow, { useGenerateWorkflow } from './GenerateWorkflow.tsx';
 import type { PipelineConfig } from '../../types/pipeline.ts';
 
@@ -100,6 +101,11 @@ export default function Generate() {
               state={workflow}
               onPhaseChange={() => {}}
             />
+
+            {/* Download buttons (shown when generation is complete) */}
+            {workflow.phase === 'completed' && workflow.jobId && (
+              <DownloadButtons jobId={workflow.jobId} />
+            )}
 
             {/* Parameter confirmation form (shown during confirming phase) */}
             {workflow.phase === 'confirming' && workflow.parsedParams && workflow.parsedParams.length > 0 && (
