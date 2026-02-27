@@ -37,7 +37,7 @@
 - [ ] 6.2 添加 `POST /generate/organic/upload` 图片模式端点：MIME 白名单（png/jpeg/webp）、最大 10MB 限制、流式写入临时文件，422 错误映射
 - [ ] 6.3 添加 `GET /generate/organic/{job_id}` 端点：Job 状态查询 + 产物 URL 恢复（支持 SSE 断连恢复）
 - [ ] 6.4 添加 `GET /generate/organic/providers` 端点（返回可用 provider 健康状态）
-- [ ] 6.5 在 `backend/main.py` 中通过 `ORGANIC_ENABLED` feature-gate 条件挂载 organic_router，重型依赖（manifold3d、pymeshlab）在 handler 内懒加载
+- [ ] 6.5 在 `backend/main.py` 中始终挂载 organic_router，每个 handler 内检查 `ORGANIC_ENABLED` 配置（禁用时返回 503），重型依赖（manifold3d、pymeshlab）在 handler 内懒加载
 - [ ] 6.6 为 API 端点编写集成测试：mock Provider，验证 SSE 事件序列、上传校验、job 查询、错误处理
 
 ## 7. 导航重构
