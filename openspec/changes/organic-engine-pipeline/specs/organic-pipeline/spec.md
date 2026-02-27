@@ -22,6 +22,10 @@ The system SHALL accept an image upload (with optional text prompt) and generate
 - **WHEN** user submits `POST /api/generate/organic/upload` with an image file and optional `prompt`
 - **THEN** system generates a 3D mesh from the image and returns SSE stream through to `completed`
 
+#### Scenario: Image upload validation
+- **WHEN** user uploads a file exceeding 10MB or with unsupported MIME type (not image/png, image/jpeg, image/webp)
+- **THEN** system returns HTTP 422 with descriptive error before starting any generation
+
 ### Requirement: OrganicSpec construction via LLM
 The system SHALL use an LLM to translate user's Chinese prompt into an English prompt suitable for 3D generation APIs, and extract shape category and suggested bounding box.
 
@@ -34,7 +38,7 @@ The system SHALL apply a post-processing pipeline to AI-generated meshes: repair
 
 #### Scenario: Full post-processing with engineering cuts
 - **WHEN** a raw mesh is generated and constraints include `flat_bottom` and a `hole` cut
-- **THEN** the processed mesh has a flat bottom surface, a precise cylindrical hole at the specified position/diameter, is watertight, and has non-zero volume
+- **THEN** the processed mesh has a flat bottom surface, a cylindrical hole within tolerance (±0.2mm standard, ±0.1mm high) at the specified position/diameter, is watertight, and has non-zero volume
 
 #### Scenario: Draft mode skips boolean cuts
 - **WHEN** `quality_mode` is `"draft"` and constraints include engineering cuts
@@ -63,7 +67,7 @@ The system SHALL use manifold3d for boolean difference operations to create engi
 
 #### Scenario: Precision hole cut
 - **WHEN** constraints include `{ "type": "hole", "diameter": 10, "depth": 25, "direction": "bottom" }`
-- **THEN** a cylindrical hole of exactly 10mm diameter and 25mm depth is cut from the bottom of the mesh
+- **THEN** a cylindrical hole of approximately 10mm diameter (±0.2mm for standard, ±0.1mm for high) and 25mm depth is cut from the bottom of the mesh
 
 #### Scenario: Boolean failure graceful degradation
 - **WHEN** manifold3d boolean operation fails on a problematic mesh
@@ -82,6 +86,17 @@ The system SHALL export the processed mesh in STL, 3MF, and GLB formats.
 #### Scenario: All formats available on completion
 - **WHEN** generation completes successfully
 - **THEN** `completed` event includes `model_url` (GLB), `stl_url`, and `threemf_url`
+
+### Requirement: Job lifecycle management
+The system SHALL persist organic generation job state, allowing clients to query job status and recover from connection drops.
+
+#### Scenario: Job status query
+- **WHEN** client calls `GET /api/generate/organic/{job_id}`
+- **THEN** response includes current job status, progress, and completed artifacts (model_url, stl_url) if available
+
+#### Scenario: SSE reconnection
+- **WHEN** client SSE connection drops during generation and client reconnects via `GET /api/generate/organic/{job_id}`
+- **THEN** client receives current state and can resume listening for updates
 
 ### Requirement: Provider abstraction layer
 The system SHALL abstract 3D generation providers behind a `MeshProvider` interface supporting `generate()` and `check_health()`.

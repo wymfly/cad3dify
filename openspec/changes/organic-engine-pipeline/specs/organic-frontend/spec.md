@@ -18,6 +18,10 @@ The system SHALL support two input modes via tab switching: text prompt input an
 - **WHEN** user uploads an image in the image tab and clicks "生成"
 - **THEN** system calls `POST /api/generate/organic/upload` with the image file
 
+#### Scenario: Image upload validation
+- **WHEN** user attempts to upload a file larger than 10MB or with unsupported format
+- **THEN** frontend shows inline error message before submission, preventing the upload
+
 ### Requirement: Engineering constraint form
 The system SHALL provide a form for configuring bounding box dimensions and engineering cut interfaces (flat bottom, holes, slots) with dynamic add/remove.
 

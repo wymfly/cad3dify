@@ -1,12 +1,12 @@
 ## 1. 依赖与配置
 
-- [ ] 1.1 在 pyproject.toml 中添加 `manifold3d>=3.0.0` 和 `pymeshlab>=2025.0` 依赖，运行 `uv sync` 验证安装
-- [ ] 1.2 在 `.env.sample` 和 `backend/config.py` 中添加 `TRIPO3D_API_KEY`、`HUNYUAN3D_API_KEY`、`ORGANIC_DEFAULT_PROVIDER` 配置项
+- [ ] 1.1 在 pyproject.toml 中添加 `manifold3d>=3.0.0` 和 `pymeshlab>=2025.0` 依赖（pymeshlab 标记为可选依赖），运行 `uv sync` 验证安装
+- [ ] 1.2 在 `.env.sample` 和 `backend/config.py` 中添加 `TRIPO3D_API_KEY`、`HUNYUAN3D_API_KEY`、`ORGANIC_DEFAULT_PROVIDER`、`ORGANIC_ENABLED` 配置项
 
 ## 2. 后端数据模型
 
-- [ ] 2.1 创建 `backend/models/organic.py`：EngineeringCut、OrganicConstraints、OrganicGenerateRequest、OrganicSpec、MeshStats、OrganicJobResult 全部 Pydantic 模型
-- [ ] 2.2 为数据模型编写单元测试：验证默认值、序列化、枚举校验
+- [ ] 2.1 创建 `backend/models/organic.py`：使用 discriminated union 设计 EngineeringCut（FlatBottomCut / HoleCut / SlotCut 各有独立必填字段和数值边界），OrganicConstraints（cuts 使用 `Field(default_factory=list)`）、OrganicGenerateRequest、OrganicSpec、MeshStats、OrganicJobResult 全部 Pydantic 模型
+- [ ] 2.2 为数据模型编写单元测试：验证默认值、序列化、枚举校验、discriminated union 分发、无效参数拒绝
 
 ## 3. Provider 抽象层
 
@@ -33,11 +33,12 @@
 
 ## 6. 后端 API 端点
 
-- [ ] 6.1 创建 `backend/api/organic.py`：`POST /generate/organic` 文本模式 SSE 端点（OrganicSpecBuilder → MeshGenerator → PostProcessor → 导出 → SSE 事件流）
-- [ ] 6.2 添加 `POST /generate/organic/upload` 图片模式端点（multipart 接收 → Image-to-3D → PostProcessor → SSE）
-- [ ] 6.3 添加 `GET /generate/organic/providers` 端点（返回可用 provider 健康状态）
-- [ ] 6.4 在 `backend/main.py` 中挂载 organic_router
-- [ ] 6.5 为 API 端点编写集成测试：mock Provider，验证 SSE 事件序列和错误处理
+- [ ] 6.1 创建 `backend/api/organic.py`：`POST /generate/organic` 文本模式 SSE 端点（OrganicSpecBuilder → MeshGenerator → PostProcessor → 导出 → SSE 事件流），每个 SSE 事件包含 `job_id`、`status`、`message`、`progress` 标准信封字段
+- [ ] 6.2 添加 `POST /generate/organic/upload` 图片模式端点：MIME 白名单（png/jpeg/webp）、最大 10MB 限制、流式写入临时文件，422 错误映射
+- [ ] 6.3 添加 `GET /generate/organic/{job_id}` 端点：Job 状态查询 + 产物 URL 恢复（支持 SSE 断连恢复）
+- [ ] 6.4 添加 `GET /generate/organic/providers` 端点（返回可用 provider 健康状态）
+- [ ] 6.5 在 `backend/main.py` 中通过 `ORGANIC_ENABLED` feature-gate 条件挂载 organic_router，重型依赖（manifold3d、pymeshlab）在 handler 内懒加载
+- [ ] 6.6 为 API 端点编写集成测试：mock Provider，验证 SSE 事件序列、上传校验、job 查询、错误处理
 
 ## 7. 导航重构
 
@@ -60,10 +61,12 @@
 - [ ] 8.10 修改 `App.tsx`：新增 `/generate/organic` 路由 + OrganicWorkflowProvider 包裹
 - [ ] 8.11 验证 TypeScript 编译零错误，页面渲染正常
 
-## 9. E2E 验证
+## 9. 回归保护与 E2E 验证
 
-- [ ] 9.1 启动后端和前端，配置真实 API Key
-- [ ] 9.2 Text-to-3D 端到端测试：输入 prompt + 约束 → 完整走通生成 → 后处理 → 3D 预览 → 下载 STL
-- [ ] 9.3 Image-to-3D 端到端测试：上传参考图片 → 完整走通生成 → 3D 预览
-- [ ] 9.4 验证导航：侧边栏二级菜单、首页双入口卡片、所有路由正常
-- [ ] 9.5 验证状态持久化：生成完成后切换页面再切回，状态保持
+- [ ] 9.1 编写机械管道冒烟测试：验证 `POST /api/generate`、`POST /api/generate/drawing`、前端 `/generate` 页面在 organic 管道引入后仍正常工作
+- [ ] 9.2 启动后端和前端，配置真实 API Key
+- [ ] 9.3 Text-to-3D 端到端测试：输入 prompt + 约束 → 完整走通生成 → 后处理 → 3D 预览 → 下载 STL
+- [ ] 9.4 Image-to-3D 端到端测试：上传参考图片 → 完整走通生成 → 3D 预览
+- [ ] 9.5 验证导航：侧边栏二级菜单、首页双入口卡片、所有路由正常
+- [ ] 9.6 验证状态持久化：生成完成后切换页面再切回，状态保持
+- [ ] 9.7 验证 feature-gate：`ORGANIC_ENABLED=false` 时，organic 端点返回 503，机械管道完全不受影响
