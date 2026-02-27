@@ -260,6 +260,33 @@ async def generate_organic(
             except Exception as e:
                 logger.warning(f"3MF export failed: {e}")
 
+            # Printability check on exported mesh
+            printability_data = None
+            try:
+                from backend.core.geometry_extractor import (
+                    extract_geometry_from_mesh,
+                )
+                from backend.core.printability import PrintabilityChecker
+
+                mesh_path = str(stl_path) if stl_path.exists() else str(glb_path)
+                geometry_info = extract_geometry_from_mesh(mesh_path)
+                checker = PrintabilityChecker()
+                pr = checker.check(geometry_info)
+                mat = checker.estimate_material(geometry_info)
+                time_est = checker.estimate_print_time(geometry_info)
+                printability_data = pr.model_dump()
+                printability_data["material_estimate"] = {
+                    "filament_weight_g": mat.filament_weight_g,
+                    "filament_length_m": mat.filament_length_m,
+                    "cost_estimate_cny": mat.cost_estimate_cny,
+                }
+                printability_data["time_estimate"] = {
+                    "total_minutes": time_est.total_minutes,
+                    "layer_count": time_est.layer_count,
+                }
+            except Exception as e:
+                logger.warning(f"Organic printability check failed: {e}")
+
             result = OrganicJobResult(
                 job_id=job_id,
                 model_url=f"/outputs/organic/{job_id}/model.glb",
@@ -287,6 +314,7 @@ async def generate_organic(
                 threemf_url=result_data.get("threemf_url"),
                 mesh_stats=result_data.get("mesh_stats"),
                 warnings=processed.warnings,
+                printability=printability_data,
             )
 
         except Exception as e:

@@ -329,6 +329,90 @@ class TestSSEStream:
             assert completed["threemf_url"] is not None
             assert completed["threemf_url"].endswith(".3mf")
 
+    async def test_completed_event_includes_printability(self, client: AsyncClient) -> None:
+        """Completed SSE event should include printability data from mesh analysis."""
+        from backend.models.organic import MeshStats
+
+        with patch("backend.core.organic_spec_builder.OrganicSpecBuilder.build") as mock_build, \
+             patch("backend.api.organic._create_provider") as mock_create_prov, \
+             patch("backend.core.mesh_post_processor.MeshPostProcessor") as mock_pp_cls, \
+             patch("backend.core.geometry_extractor.extract_geometry_from_mesh") as mock_extract, \
+             patch("backend.core.printability.PrintabilityChecker") as mock_checker_cls:
+
+            mock_spec = MagicMock()
+            mock_spec.prompt_en = "test"
+            mock_spec.final_bounding_box = None
+            mock_spec.engineering_cuts = []
+            mock_spec.quality_mode = "draft"
+            mock_build.return_value = mock_spec
+
+            mock_provider = AsyncMock()
+            mock_provider.generate = AsyncMock(return_value=Path("/tmp/test.glb"))
+            mock_create_prov.return_value = mock_provider
+
+            mock_mesh = MagicMock()
+            mock_mesh.export = MagicMock()
+            mock_repair_info = MagicMock()
+            mock_repair_info.status = "success"
+            mock_repair_info.message = "OK"
+            real_stats = MeshStats(
+                vertex_count=100, face_count=200, is_watertight=True,
+                volume_cm3=1.0, bounding_box={"x": 50, "y": 50, "z": 50},
+                has_non_manifold=False,
+            )
+
+            mock_pp = MagicMock()
+            mock_pp.load_mesh.return_value = mock_mesh
+            mock_pp.repair_mesh.return_value = (mock_mesh, mock_repair_info)
+            mock_pp.validate_mesh.return_value = real_stats
+            mock_pp_cls.return_value = mock_pp
+
+            # Mock geometry extractor + printability checker
+            from backend.models.printability import PrintabilityResult
+            mock_extract.return_value = {
+                "bounding_box": {"x": 50, "y": 50, "z": 50},
+                "volume_cm3": 1.0,
+                "min_wall_thickness": None,
+                "max_overhang_angle": None,
+                "min_hole_diameter": None,
+            }
+            mock_checker = MagicMock()
+            mock_pr = PrintabilityResult(
+                printable=True, profile="fdm_standard", issues=[],
+                material_volume_cm3=1.0, bounding_box={"x": 50, "y": 50, "z": 50},
+            )
+            mock_checker.check.return_value = mock_pr
+            mock_mat = MagicMock()
+            mock_mat.filament_weight_g = 5.0
+            mock_mat.filament_length_m = 2.0
+            mock_mat.cost_estimate_cny = 0.5
+            mock_checker.estimate_material.return_value = mock_mat
+            mock_time = MagicMock()
+            mock_time.total_minutes = 30.0
+            mock_time.layer_count = 50
+            mock_checker.estimate_print_time.return_value = mock_time
+            mock_checker_cls.return_value = mock_checker
+
+            resp = await client.post(
+                "/api/generate/organic",
+                json={"prompt": "测试可打印性"},
+            )
+            lines = resp.text.strip().split("\n")
+            data_lines = [
+                l.strip() for l in lines if l.strip().startswith("data:")
+            ]
+            completed = []
+            for data_line in data_lines:
+                payload = json.loads(data_line[len("data:"):].strip())
+                if payload.get("status") == "completed":
+                    completed.append(payload)
+
+            assert len(completed) == 1
+            assert "printability" in completed[0]
+            assert completed[0]["printability"]["printable"] is True
+            assert "material_estimate" in completed[0]["printability"]
+            assert "time_estimate" in completed[0]["printability"]
+
     async def test_empty_prompt_with_image_is_accepted(self, client: AsyncClient) -> None:
         """Empty prompt with a reference_image should pass validation (422 only if image not found)."""
         resp = await client.post(
