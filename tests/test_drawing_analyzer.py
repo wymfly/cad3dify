@@ -1,4 +1,8 @@
-"""Tests for DrawingAnalyzer CoT parsing."""
+"""Tests for DrawingAnalyzer CoT parsing + OCR-VLM fusion."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -87,3 +91,127 @@ Some analysis here
         result = _parse_drawing_spec({"text": text})
         assert result["result"] is not None
         assert result["result"].part_type.value == "general"
+
+
+# ===================================================================
+# OCR-VLM Fusion tests (T15)
+# ===================================================================
+
+
+class TestMapOcrToVlKeys:
+    """Tests for _map_ocr_to_vl_keys heuristic mapping."""
+
+    def test_diameter_matching(self) -> None:
+        from backend.core.drawing_analyzer import _map_ocr_to_vl_keys
+        from backend.core.ocr_assist import DimensionAnnotation
+
+        annotations = [DimensionAnnotation(type="diameter", value=50.0)]
+        vl_dims = {"max_diameter": 48.0, "total_height": 30.0}
+        result = _map_ocr_to_vl_keys(annotations, vl_dims)
+        assert result["max_diameter"] == 50.0
+        assert "total_height" not in result
+
+    def test_linear_matching(self) -> None:
+        from backend.core.drawing_analyzer import _map_ocr_to_vl_keys
+        from backend.core.ocr_assist import DimensionAnnotation
+
+        annotations = [DimensionAnnotation(type="linear", value=30.0)]
+        vl_dims = {"max_diameter": 100.0, "total_height": 28.0}
+        result = _map_ocr_to_vl_keys(annotations, vl_dims)
+        assert result["total_height"] == 30.0
+        assert "max_diameter" not in result
+
+    def test_multiple_diameters_sorted(self) -> None:
+        """Multiple OCR diameters matched to multiple VL diameter keys by size."""
+        from backend.core.drawing_analyzer import _map_ocr_to_vl_keys
+        from backend.core.ocr_assist import DimensionAnnotation
+
+        annotations = [
+            DimensionAnnotation(type="diameter", value=100.0),
+            DimensionAnnotation(type="diameter", value=40.0),
+        ]
+        vl_dims = {"max_diameter": 98.0, "inner_diameter": 38.0}
+        result = _map_ocr_to_vl_keys(annotations, vl_dims)
+        assert result["max_diameter"] == 100.0
+        assert result["inner_diameter"] == 40.0
+
+    def test_no_matching_keys(self) -> None:
+        """No VL keys match OCR types — empty dict."""
+        from backend.core.drawing_analyzer import _map_ocr_to_vl_keys
+        from backend.core.ocr_assist import DimensionAnnotation
+
+        annotations = [DimensionAnnotation(type="diameter", value=50.0)]
+        vl_dims = {"some_other_key": 100.0}
+        result = _map_ocr_to_vl_keys(annotations, vl_dims)
+        assert result == {}
+
+    def test_empty_annotations(self) -> None:
+        from backend.core.drawing_analyzer import _map_ocr_to_vl_keys
+
+        result = _map_ocr_to_vl_keys([], {"max_diameter": 100.0})
+        assert result == {}
+
+
+class TestFuseOcrWithSpec:
+    """Tests for fuse_ocr_with_spec end-to-end fusion."""
+
+    def _make_spec(self, dims: dict[str, float]) -> MagicMock:
+        """Create a mock DrawingSpec with given overall_dimensions."""
+        spec = MagicMock()
+        spec.overall_dimensions = dims.copy()
+        return spec
+
+    def test_ocr_overrides_vl_for_numeric(self) -> None:
+        """When OCR and VLM disagree on a number, OCR wins."""
+        from backend.core.ocr_assist import DimensionAnnotation, merge_ocr_with_vl
+
+        merged, conf = merge_ocr_with_vl(
+            ocr_dims={"diameter": 50.0},
+            vl_dims={"diameter": 48.0, "height": 30.0},
+        )
+        assert merged["diameter"] == 50.0  # OCR wins
+        assert merged["height"] == 30.0  # VLM only
+        assert conf["diameter"] == 0.7  # Disagreement confidence
+
+    def test_fuse_with_mocked_ocr(self) -> None:
+        """Full fusion with mocked OCR engine."""
+        from backend.core.drawing_analyzer import fuse_ocr_with_spec
+        from backend.core.ocr_assist import OCRResult
+
+        spec = self._make_spec({"max_diameter": 48.0, "total_height": 30.0})
+
+        mock_ocr_fn = MagicMock(return_value=[
+            OCRResult(text="φ50", confidence=0.95, bbox=(10, 20, 100, 40)),
+            OCRResult(text="32", confidence=0.90, bbox=(10, 60, 100, 80)),
+        ])
+
+        with patch("backend.core.ocr_engine.get_ocr_fn", return_value=mock_ocr_fn):
+            result = fuse_ocr_with_spec(spec, b"fake image bytes")
+
+        # OCR found Ø50 (diameter=50) and 32 (linear=32)
+        assert result.overall_dimensions["max_diameter"] == 50.0
+        assert result.overall_dimensions["total_height"] == 32.0
+
+    def test_fuse_no_ocr_dims_returns_original(self) -> None:
+        """When OCR finds nothing, spec is unchanged."""
+        from backend.core.drawing_analyzer import fuse_ocr_with_spec
+
+        spec = self._make_spec({"max_diameter": 100.0})
+        mock_ocr_fn = MagicMock(return_value=[])
+
+        with patch("backend.core.ocr_engine.get_ocr_fn", return_value=mock_ocr_fn):
+            result = fuse_ocr_with_spec(spec, b"fake image")
+
+        assert result.overall_dimensions["max_diameter"] == 100.0
+
+    def test_fuse_graceful_on_ocr_failure(self) -> None:
+        """When OCR extraction fails, spec is unchanged."""
+        from backend.core.drawing_analyzer import fuse_ocr_with_spec
+
+        spec = self._make_spec({"max_diameter": 100.0})
+        mock_ocr_fn = MagicMock(side_effect=RuntimeError("OCR crashed"))
+
+        with patch("backend.core.ocr_engine.get_ocr_fn", return_value=mock_ocr_fn):
+            result = fuse_ocr_with_spec(spec, b"fake image")
+
+        assert result.overall_dimensions["max_diameter"] == 100.0

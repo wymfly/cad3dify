@@ -10,7 +10,7 @@ from ..core.api_whitelist import get_whitelist_prompt_section
 from ..core.ast_checker import ast_pre_check
 from ..core.candidate_scorer import score_candidate, select_best
 from ..core.code_generator import CodeGeneratorChain
-from ..core.drawing_analyzer import DrawingAnalyzerChain
+from ..core.drawing_analyzer import DrawingAnalyzerChain, fuse_ocr_with_spec
 from ..core.modeling_strategist import ModelingStrategist
 from ..core.rollback import RollbackTracker
 from ..core.smart_refiner import SmartRefiner
@@ -153,6 +153,12 @@ def analyze_drawing(
     if spec is None:
         logger.error("[V2] Drawing analysis failed")
         return None, None
+
+    # OCR fusion: supplement VL dimensions with OCR-extracted numeric values
+    import base64
+
+    raw_bytes = base64.b64decode(image_data.data)
+    spec = fuse_ocr_with_spec(spec, raw_bytes)
 
     logger.info(f"[V2] Drawing spec: {spec.part_type}, dims={spec.overall_dimensions}")
     return spec, reasoning

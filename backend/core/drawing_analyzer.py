@@ -127,6 +127,94 @@ def _parse_drawing_spec(input: dict) -> dict:
         return {"result": None, "reasoning": reasoning}
 
 
+def fuse_ocr_with_spec(
+    spec: DrawingSpec,
+    image_bytes: bytes,
+) -> DrawingSpec:
+    """Fuse OCR dimension extraction with VL-generated DrawingSpec.
+
+    Priority: OCR wins for numeric fields, VL wins for semantic fields.
+    Returns the spec with ``overall_dimensions`` updated if OCR found dimensions.
+    Gracefully returns original spec on any failure.
+    """
+    try:
+        from backend.core.ocr_assist import OCRAssistant, merge_ocr_with_vl
+        from backend.core.ocr_engine import get_ocr_fn
+    except ImportError:
+        return spec
+
+    try:
+        ocr_fn = get_ocr_fn()
+        assistant = OCRAssistant(ocr_fn)
+        ocr_annotations = assistant.extract_dimensions(image_bytes)
+    except Exception:
+        logger.warning("OCR extraction failed, using VL-only dimensions")
+        return spec
+
+    if not ocr_annotations:
+        return spec
+
+    ocr_dims_dict = _map_ocr_to_vl_keys(ocr_annotations, spec.overall_dimensions)
+    if not ocr_dims_dict:
+        return spec
+
+    merged, _confidences = merge_ocr_with_vl(
+        ocr_dims=ocr_dims_dict,
+        vl_dims=spec.overall_dimensions,
+    )
+    spec.overall_dimensions = merged
+    logger.info(f"OCR fusion: updated {len(ocr_dims_dict)} dimensions")
+    return spec
+
+
+def _map_ocr_to_vl_keys(
+    annotations: list,
+    vl_dims: dict[str, Any],
+) -> dict[str, float]:
+    """Map OCR DimensionAnnotation list to VL dimension key names by type heuristic.
+
+    Pairs OCR annotations to VL keys by matching annotation type to key name
+    patterns, then aligns by descending value (largest OCR value → largest VL key).
+    """
+    # Word-part sets: match against underscore-separated parts of key names.
+    # E.g. "max_diameter" → parts ["max", "diameter"] → "diameter" matches.
+    _DIAMETER_PARTS = {"diameter", "d", "od", "id"}
+    _LINEAR_PARTS = {"height", "h", "length", "l", "width", "w", "thickness", "t", "depth"}
+
+    def _matches(key: str, parts_set: set[str]) -> bool:
+        return any(p in parts_set for p in key.lower().split("_"))
+
+    def _numeric_val(v: Any) -> float:
+        return float(v) if isinstance(v, (int, float)) else 0.0
+
+    dia_keys = sorted(
+        [k for k in vl_dims if _matches(k, _DIAMETER_PARTS)],
+        key=lambda k: _numeric_val(vl_dims[k]), reverse=True,
+    )
+    lin_keys = sorted(
+        [k for k in vl_dims if _matches(k, _LINEAR_PARTS)],
+        key=lambda k: _numeric_val(vl_dims[k]), reverse=True,
+    )
+
+    dia_annots = sorted(
+        [a for a in annotations if a.type == "diameter"],
+        key=lambda a: a.value, reverse=True,
+    )
+    lin_annots = sorted(
+        [a for a in annotations if a.type == "linear"],
+        key=lambda a: a.value, reverse=True,
+    )
+
+    result: dict[str, float] = {}
+    for i, key in enumerate(dia_keys):
+        if i < len(dia_annots):
+            result[key] = dia_annots[i].value
+    for i, key in enumerate(lin_keys):
+        if i < len(lin_annots):
+            result[key] = lin_annots[i].value
+    return result
+
+
 class DrawingAnalyzerChain(SequentialChain):
     """阶段1：VL 模型分析工程图纸，输出结构化 DrawingSpec"""
 
