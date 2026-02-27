@@ -18,11 +18,15 @@ from backend.models.organic_job import (
 
 
 @pytest.fixture(autouse=True)
-def _clean_jobs():
-    """Clear organic job store before each test."""
-    clear_organic_jobs()
+async def _init_and_clean_jobs():
+    """Initialize DB and clear organic job store before each test."""
+    import backend.db.models  # noqa: F401 — register ORM models with Base
+    from backend.db.database import init_db
+
+    await init_db()
+    await clear_organic_jobs()
     yield
-    clear_organic_jobs()
+    await clear_organic_jobs()
 
 
 @pytest.fixture
@@ -130,7 +134,7 @@ class TestJobStatus:
         assert resp.status_code == 404
 
     async def test_get_existing_job(self, client: AsyncClient) -> None:
-        create_organic_job(
+        await create_organic_job(
             job_id="test-job-1",
             prompt="测试",
             provider="auto",

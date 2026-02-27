@@ -36,11 +36,15 @@ from backend.models.job import (
 
 
 @pytest.fixture(autouse=True)
-def _clean_jobs():
-    """Clear job store before each test."""
-    clear_jobs()
+async def _init_and_clean_jobs():
+    """Init DB tables and clear job store before each test."""
+    import backend.db.models  # noqa: F401 — register ORM models with Base
+    from backend.db.database import init_db
+
+    await init_db()
+    await clear_jobs()
     yield
-    clear_jobs()
+    await clear_jobs()
 
 
 @pytest.fixture()
@@ -55,65 +59,65 @@ def client():
 
 
 class TestJobModel:
-    def test_create_job(self) -> None:
-        job = create_job("j1", input_type="text", input_text="做一个法兰")
+    async def test_create_job(self) -> None:
+        job = await create_job("j1", input_type="text", input_text="做一个法兰")
         assert job.job_id == "j1"
         assert job.status == JobStatus.CREATED
         assert job.input_type == "text"
         assert job.input_text == "做一个法兰"
 
-    def test_get_job(self) -> None:
-        create_job("j2")
-        job = get_job("j2")
+    async def test_get_job(self) -> None:
+        await create_job("j2")
+        job = await get_job("j2")
         assert job is not None
         assert job.job_id == "j2"
 
-    def test_get_nonexistent(self) -> None:
-        assert get_job("nonexistent") is None
+    async def test_get_nonexistent(self) -> None:
+        assert await get_job("nonexistent") is None
 
-    def test_update_job(self) -> None:
-        create_job("j3")
-        update_job("j3", status=JobStatus.GENERATING)
-        job = get_job("j3")
+    async def test_update_job(self) -> None:
+        await create_job("j3")
+        await update_job("j3", status=JobStatus.GENERATING)
+        job = await get_job("j3")
         assert job is not None
         assert job.status == JobStatus.GENERATING
 
-    def test_update_nonexistent_raises(self) -> None:
+    async def test_update_nonexistent_raises(self) -> None:
         with pytest.raises(KeyError):
-            update_job("nonexistent", status=JobStatus.COMPLETED)
+            await update_job("nonexistent", status=JobStatus.COMPLETED)
 
-    def test_delete_job(self) -> None:
-        create_job("j4")
-        delete_job("j4")
-        assert get_job("j4") is None
+    async def test_delete_job(self) -> None:
+        await create_job("j4")
+        await delete_job("j4")
+        assert await get_job("j4") is None
 
-    def test_list_jobs(self) -> None:
-        create_job("a")
-        create_job("b")
-        jobs = list_jobs()
+    async def test_list_jobs(self) -> None:
+        await create_job("a")
+        await create_job("b")
+        jobs = await list_jobs()
         assert len(jobs) == 2
 
-    def test_clear_jobs(self) -> None:
-        create_job("x")
-        create_job("y")
-        clear_jobs()
-        assert list_jobs() == []
+    async def test_clear_jobs(self) -> None:
+        await create_job("x")
+        await create_job("y")
+        await clear_jobs()
+        assert await list_jobs() == []
 
-    def test_job_status_enum(self) -> None:
+    async def test_job_status_enum(self) -> None:
         assert JobStatus.CREATED.value == "created"
         assert JobStatus.AWAITING_CONFIRMATION.value == "awaiting_confirmation"
         assert JobStatus.COMPLETED.value == "completed"
 
-    def test_job_serialization(self) -> None:
-        job = create_job("s1", input_type="text", input_text="test")
+    async def test_job_serialization(self) -> None:
+        job = await create_job("s1", input_type="text", input_text="test")
         data = job.model_dump()
         assert data["job_id"] == "s1"
         assert data["status"] == "created"
         restored = Job.model_validate(data)
         assert restored.job_id == "s1"
 
-    def test_job_status_transitions(self) -> None:
-        create_job("t1")
+    async def test_job_status_transitions(self) -> None:
+        await create_job("t1")
         for status in [
             JobStatus.INTENT_PARSED,
             JobStatus.AWAITING_CONFIRMATION,
@@ -122,47 +126,47 @@ class TestJobModel:
             JobStatus.REFINING,
             JobStatus.COMPLETED,
         ]:
-            update_job("t1", status=status)
-            assert get_job("t1").status == status
+            await update_job("t1", status=status)
+            assert (await get_job("t1")).status == status
 
-    def test_awaiting_drawing_confirmation_status(self) -> None:
+    async def test_awaiting_drawing_confirmation_status(self) -> None:
         assert (
             JobStatus.AWAITING_DRAWING_CONFIRMATION.value
             == "awaiting_drawing_confirmation"
         )
 
-    def test_drawing_spec_fields(self) -> None:
-        job = create_job("d1", input_type="drawing")
+    async def test_drawing_spec_fields(self) -> None:
+        job = await create_job("d1", input_type="drawing")
         assert job.drawing_spec is None
         assert job.drawing_spec_confirmed is None
         assert job.image_path is None
 
         spec = {"part_type": "ROTATIONAL", "overall_dimensions": {"d": 50}}
-        update_job(
+        await update_job(
             "d1",
             status=JobStatus.AWAITING_DRAWING_CONFIRMATION,
             drawing_spec=spec,
             image_path="/uploads/drawing.png",
         )
-        job = get_job("d1")
+        job = await get_job("d1")
         assert job.status == JobStatus.AWAITING_DRAWING_CONFIRMATION
         assert job.drawing_spec == spec
         assert job.image_path == "/uploads/drawing.png"
 
         confirmed = {**spec, "overall_dimensions": {"d": 52}}
-        update_job("d1", drawing_spec_confirmed=confirmed)
-        job = get_job("d1")
+        await update_job("d1", drawing_spec_confirmed=confirmed)
+        job = await get_job("d1")
         assert job.drawing_spec_confirmed == confirmed
 
-    def test_drawing_job_serialization(self) -> None:
-        job = create_job("d2", input_type="drawing")
+    async def test_drawing_job_serialization(self) -> None:
+        await create_job("d2", input_type="drawing")
         spec = {"part_type": "PLATE", "overall_dimensions": {"w": 100}}
-        update_job(
+        await update_job(
             "d2",
             drawing_spec=spec,
             image_path="/tmp/img.jpg",
         )
-        data = get_job("d2").model_dump()
+        data = (await get_job("d2")).model_dump()
         assert data["drawing_spec"] == spec
         assert data["image_path"] == "/tmp/img.jpg"
         restored = Job.model_validate(data)
@@ -195,7 +199,7 @@ def parse_sse_events(response_text: str) -> list[dict]:
 
 
 class TestGenerateTextMode:
-    def test_text_mode_returns_sse(self, client: TestClient) -> None:
+    async def test_text_mode_returns_sse(self, client: TestClient) -> None:
         resp = client.post(
             "/api/generate",
             json={"text": "做一个法兰盘"},
@@ -203,7 +207,7 @@ class TestGenerateTextMode:
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers.get("content-type", "")
 
-    def test_text_mode_creates_job(self, client: TestClient) -> None:
+    async def test_text_mode_creates_job(self, client: TestClient) -> None:
         resp = client.post(
             "/api/generate",
             json={"text": "做一个法兰盘"},
@@ -213,7 +217,7 @@ class TestGenerateTextMode:
         job_id = events[0]["job_id"]
         assert job_id is not None
 
-    def test_text_mode_event_flow(self, client: TestClient) -> None:
+    async def test_text_mode_event_flow(self, client: TestClient) -> None:
         resp = client.post(
             "/api/generate",
             json={"text": "做一个法兰盘"},
@@ -224,7 +228,7 @@ class TestGenerateTextMode:
         assert "intent_parsed" in statuses
         assert "awaiting_confirmation" in statuses
 
-    def test_text_mode_returns_params(self, client: TestClient) -> None:
+    async def test_text_mode_returns_params(self, client: TestClient) -> None:
         """intent_parsed event should contain params array."""
         resp = client.post("/api/generate", json={"text": "做一个法兰盘"})
         events = parse_sse_events(resp.text)
@@ -234,7 +238,7 @@ class TestGenerateTextMode:
         assert "params" in parsed[0]
         assert isinstance(parsed[0]["params"], list)
 
-    def test_text_mode_template_match(self, client: TestClient) -> None:
+    async def test_text_mode_template_match(self, client: TestClient) -> None:
         """When text contains a known display_name, template_name should be set."""
         resp = client.post("/api/generate", json={"text": "做一个法兰盘"})
         events = parse_sse_events(resp.text)
@@ -244,7 +248,7 @@ class TestGenerateTextMode:
         assert parsed[0].get("template_name") == "rotational_flange_disk"
         assert len(parsed[0]["params"]) > 0
 
-    def test_text_mode_no_match(self, client: TestClient) -> None:
+    async def test_text_mode_no_match(self, client: TestClient) -> None:
         """When text has no known keyword, template_name should be None."""
         resp = client.post("/api/generate", json={"text": "做一个完全未知的东西"})
         events = parse_sse_events(resp.text)
@@ -253,7 +257,7 @@ class TestGenerateTextMode:
         assert parsed[0].get("template_name") is None
         assert parsed[0]["params"] == []
 
-    def test_text_mode_job_status_persists(self, client: TestClient) -> None:
+    async def test_text_mode_job_status_persists(self, client: TestClient) -> None:
         resp = client.post(
             "/api/generate",
             json={"text": "做一个法兰盘"},
@@ -294,7 +298,7 @@ class TestGenerateDrawingMode:
         """Mock analyze_drawing that returns None (analysis failure)."""
         return None, None
 
-    def test_drawing_mode_returns_sse(
+    async def test_drawing_mode_returns_sse(
         self, client: TestClient, monkeypatch,
     ) -> None:
         import backend.api.generate as gen_mod
@@ -308,7 +312,7 @@ class TestGenerateDrawingMode:
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers.get("content-type", "")
 
-    def test_drawing_mode_event_flow_pauses(
+    async def test_drawing_mode_event_flow_pauses(
         self, client: TestClient, monkeypatch,
     ) -> None:
         """Drawing route should emit drawing_spec_ready and NOT complete."""
@@ -326,7 +330,7 @@ class TestGenerateDrawingMode:
         assert "awaiting_drawing_confirmation" in statuses
         assert "completed" not in statuses  # Should NOT complete yet!
 
-    def test_drawing_spec_ready_contains_spec(
+    async def test_drawing_spec_ready_contains_spec(
         self, client: TestClient, monkeypatch,
     ) -> None:
         """drawing_spec_ready event should contain the DrawingSpec data."""
@@ -348,7 +352,7 @@ class TestGenerateDrawingMode:
         assert spec_events[0]["drawing_spec"]["part_type"] == "rotational"
         assert spec_events[0]["reasoning"] == "test reasoning"
 
-    def test_drawing_spec_stored_in_job(
+    async def test_drawing_spec_stored_in_job(
         self, client: TestClient, monkeypatch,
     ) -> None:
         """Job should have drawing_spec and image_path after analysis."""
@@ -363,13 +367,13 @@ class TestGenerateDrawingMode:
         events = parse_sse_events(resp.text)
         job_id = events[0]["job_id"]
 
-        job = get_job(job_id)
+        job = await get_job(job_id)
         assert job is not None
         assert job.status == JobStatus.AWAITING_DRAWING_CONFIRMATION
         assert job.drawing_spec == self._MOCK_SPEC_DATA
         assert job.image_path is not None
 
-    def test_drawing_analysis_returns_none(
+    async def test_drawing_analysis_returns_none(
         self, client: TestClient, monkeypatch,
     ) -> None:
         """When analysis returns None spec, should get failed event."""
@@ -385,7 +389,7 @@ class TestGenerateDrawingMode:
         failed = [e for e in events if e.get("status") == "failed"]
         assert len(failed) >= 1
 
-    def test_drawing_analysis_exception(
+    async def test_drawing_analysis_exception(
         self, client: TestClient, monkeypatch,
     ) -> None:
         """When analysis raises an exception, should get failed event."""
@@ -405,7 +409,7 @@ class TestGenerateDrawingMode:
         assert len(failed) >= 1
         assert "timeout" in failed[0].get("message", "").lower()
 
-    def test_drawing_job_status_persists(
+    async def test_drawing_job_status_persists(
         self, client: TestClient, monkeypatch,
     ) -> None:
         """Job status should be queryable via GET after drawing analysis."""
@@ -442,7 +446,7 @@ class TestConfirmParams:
         events = parse_sse_events(resp.text)
         return events[0]["job_id"]
 
-    def test_confirm_returns_sse(self, client: TestClient) -> None:
+    async def test_confirm_returns_sse(self, client: TestClient) -> None:
         job_id = self._create_awaiting_job(client)
         resp = client.post(
             f"/api/generate/{job_id}/confirm",
@@ -451,7 +455,7 @@ class TestConfirmParams:
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers.get("content-type", "")
 
-    def test_confirm_event_flow(self, client: TestClient) -> None:
+    async def test_confirm_event_flow(self, client: TestClient) -> None:
         job_id = self._create_awaiting_job(client)
         resp = client.post(
             f"/api/generate/{job_id}/confirm",
@@ -465,7 +469,7 @@ class TestConfirmParams:
         assert "refining" in statuses
         assert "completed" in statuses
 
-    def test_confirm_completes_job(self, client: TestClient) -> None:
+    async def test_confirm_completes_job(self, client: TestClient) -> None:
         job_id = self._create_awaiting_job(client)
         client.post(
             f"/api/generate/{job_id}/confirm",
@@ -474,14 +478,14 @@ class TestConfirmParams:
         status_resp = client.get(f"/api/generate/{job_id}")
         assert status_resp.json()["status"] == "completed"
 
-    def test_confirm_nonexistent_job(self, client: TestClient) -> None:
+    async def test_confirm_nonexistent_job(self, client: TestClient) -> None:
         resp = client.post(
             "/api/generate/nonexistent/confirm",
             json={"confirmed_params": {}},
         )
         assert resp.status_code == 404
 
-    def test_confirm_wrong_state(self, client: TestClient) -> None:
+    async def test_confirm_wrong_state(self, client: TestClient) -> None:
         job_id = self._create_awaiting_job(client)
         # First confirm succeeds
         client.post(
@@ -495,7 +499,7 @@ class TestConfirmParams:
         )
         assert resp.status_code == 409
 
-    def test_confirm_with_template(self, client: TestClient, monkeypatch) -> None:
+    async def test_confirm_with_template(self, client: TestClient, monkeypatch) -> None:
         """When template matches and executes, completed should have model_url."""
         import backend.api.generate as gen_mod
 
@@ -521,7 +525,7 @@ class TestConfirmParams:
         assert len(completed) == 1
         assert completed[0].get("model_url") is not None
 
-    def test_confirm_empty_params(self, client: TestClient) -> None:
+    async def test_confirm_empty_params(self, client: TestClient) -> None:
         job_id = self._create_awaiting_job(client)
         resp = client.post(
             f"/api/generate/{job_id}/confirm",
@@ -538,7 +542,7 @@ class TestConfirmParams:
 
 
 class TestGetJobStatus:
-    def test_get_existing_job(self, client: TestClient) -> None:
+    async def test_get_existing_job(self, client: TestClient) -> None:
         resp = client.post(
             "/api/generate",
             json={"text": "test"},
@@ -552,7 +556,7 @@ class TestGetJobStatus:
         assert data["job_id"] == job_id
         assert "status" in data
 
-    def test_get_nonexistent_job(self, client: TestClient) -> None:
+    async def test_get_nonexistent_job(self, client: TestClient) -> None:
         resp = client.get("/api/generate/nonexistent")
         assert resp.status_code == 404
 
@@ -563,12 +567,12 @@ class TestGetJobStatus:
 
 
 class TestListJobs:
-    def test_list_empty(self, client: TestClient) -> None:
+    async def test_list_empty(self, client: TestClient) -> None:
         resp = client.get("/api/generate/jobs")
         assert resp.status_code == 200
         assert resp.json() == []
 
-    def test_list_after_create(self, client: TestClient) -> None:
+    async def test_list_after_create(self, client: TestClient) -> None:
         client.post("/api/generate", json={"text": "test1"})
         client.post("/api/generate", json={"text": "test2"})
         resp = client.get("/api/generate/jobs")
@@ -583,12 +587,12 @@ class TestListJobs:
 
 
 class TestErrorCases:
-    def test_no_body(self, client: TestClient) -> None:
+    async def test_no_body(self, client: TestClient) -> None:
         resp = client.post("/api/generate")
         # Should return 422 (missing required field)
         assert resp.status_code == 422
 
-    def test_full_lifecycle(self, client: TestClient) -> None:
+    async def test_full_lifecycle(self, client: TestClient) -> None:
         """End-to-end: create → confirm → check status."""
         # Create
         resp = client.post(
@@ -638,7 +642,7 @@ class TestDrawingModeIntegration:
         }
         return spec, "detected plate from drawing"
 
-    def test_drawing_hitl_flow(
+    async def test_drawing_hitl_flow(
         self, client: TestClient, monkeypatch,
     ) -> None:
         """Drawing upload → analyze → drawing_spec_ready → job paused."""
@@ -672,12 +676,12 @@ class TestDrawingModeIntegration:
 
         # Job is paused
         job_id = events[0]["job_id"]
-        job = get_job(job_id)
+        job = await get_job(job_id)
         assert job.status == JobStatus.AWAITING_DRAWING_CONFIRMATION
         assert job.drawing_spec is not None
         assert job.image_path is not None
 
-    def test_drawing_analysis_timeout_returns_failed(
+    async def test_drawing_analysis_timeout_returns_failed(
         self, client: TestClient, monkeypatch,
     ) -> None:
         """Analysis timeout should return failed event."""
@@ -716,10 +720,10 @@ class TestDrawingConfirm:
         "overall_dimensions": {"d": 50, "h": 30},
     }
 
-    def _create_awaiting_drawing_job(self, job_id: str = "dc-test") -> str:
+    async def _create_awaiting_drawing_job(self, job_id: str = "dc-test") -> str:
         """Helper: create a job in AWAITING_DRAWING_CONFIRMATION state."""
-        create_job(job_id, input_type="drawing")
-        update_job(
+        await create_job(job_id, input_type="drawing")
+        await update_job(
             job_id,
             status=JobStatus.AWAITING_DRAWING_CONFIRMATION,
             drawing_spec=self._VALID_CONFIRMED_SPEC,
@@ -727,13 +731,13 @@ class TestDrawingConfirm:
         )
         return job_id
 
-    def test_drawing_confirm_resumes_generation(
+    async def test_drawing_confirm_resumes_generation(
         self, client: TestClient, monkeypatch,
     ) -> None:
         """Confirm should resume pipeline and reach completed status."""
         import backend.api.generate as gen_mod
 
-        job_id = self._create_awaiting_drawing_job()
+        job_id = await self._create_awaiting_drawing_job()
 
         def mock_generate(
             image_filepath, drawing_spec, output_filepath,
@@ -763,13 +767,13 @@ class TestDrawingConfirm:
         assert "completed" in statuses
 
         # Job should be COMPLETED
-        job = get_job(job_id)
+        job = await get_job(job_id)
         assert job is not None
         assert job.status == JobStatus.COMPLETED
         assert job.result is not None
         assert "model_url" in job.result
 
-    def test_drawing_confirm_nonexistent_job(
+    async def test_drawing_confirm_nonexistent_job(
         self, client: TestClient,
     ) -> None:
         """Confirm on nonexistent job should return 404."""
@@ -782,12 +786,12 @@ class TestDrawingConfirm:
         )
         assert resp.status_code == 404
 
-    def test_drawing_confirm_wrong_state(
+    async def test_drawing_confirm_wrong_state(
         self, client: TestClient,
     ) -> None:
         """Confirm on job not in AWAITING_DRAWING_CONFIRMATION should return 409."""
         job_id = "dc-wrong-state"
-        create_job(job_id, input_type="drawing")
+        await create_job(job_id, input_type="drawing")
         # Job is in CREATED state, not AWAITING_DRAWING_CONFIRMATION
         resp = client.post(
             f"/api/generate/drawing/{job_id}/confirm",
@@ -798,11 +802,11 @@ class TestDrawingConfirm:
         )
         assert resp.status_code == 409
 
-    def test_drawing_confirm_disclaimer_required(
+    async def test_drawing_confirm_disclaimer_required(
         self, client: TestClient,
     ) -> None:
         """Confirm with disclaimer_accepted=False should return 400."""
-        job_id = self._create_awaiting_drawing_job()
+        job_id = await self._create_awaiting_drawing_job()
         resp = client.post(
             f"/api/generate/drawing/{job_id}/confirm",
             json={
@@ -812,13 +816,13 @@ class TestDrawingConfirm:
         )
         assert resp.status_code == 400
 
-    def test_drawing_confirm_with_printability(
+    async def test_drawing_confirm_with_printability(
         self, client: TestClient, monkeypatch,
     ) -> None:
         """Completed event should include printability data when available."""
         import backend.api.generate as gen_mod
 
-        job_id = self._create_awaiting_drawing_job()
+        job_id = await self._create_awaiting_drawing_job()
 
         def mock_generate(
             image_filepath, drawing_spec, output_filepath,
@@ -849,13 +853,13 @@ class TestDrawingConfirm:
         assert len(completed) == 1
         assert completed[0].get("printability") == printability
 
-    def test_drawing_confirm_pipeline_failure(
+    async def test_drawing_confirm_pipeline_failure(
         self, client: TestClient, monkeypatch,
     ) -> None:
         """Pipeline exception should emit failed event."""
         import backend.api.generate as gen_mod
 
-        job_id = self._create_awaiting_drawing_job()
+        job_id = await self._create_awaiting_drawing_job()
 
         def mock_fail(
             image_filepath, drawing_spec, output_filepath,
@@ -877,13 +881,13 @@ class TestDrawingConfirm:
         assert len(failed) >= 1
         assert "管道执行失败" in failed[0].get("message", "")
 
-    def test_drawing_confirm_no_step_file(
+    async def test_drawing_confirm_no_step_file(
         self, client: TestClient, monkeypatch,
     ) -> None:
         """Pipeline success but no STEP file should emit failed."""
         import backend.api.generate as gen_mod
 
-        job_id = self._create_awaiting_drawing_job("dc-no-step")
+        job_id = await self._create_awaiting_drawing_job("dc-no-step")
 
         def mock_generate(
             image_filepath, drawing_spec, output_filepath,
@@ -905,11 +909,11 @@ class TestDrawingConfirm:
         assert len(failed) >= 1
         assert "STEP" in failed[0].get("message", "")
 
-    def test_drawing_confirm_invalid_spec(
+    async def test_drawing_confirm_invalid_spec(
         self, client: TestClient,
     ) -> None:
         """Invalid confirmed_spec should emit failed event (not crash)."""
-        job_id = self._create_awaiting_drawing_job()
+        job_id = await self._create_awaiting_drawing_job()
 
         resp = client.post(
             f"/api/generate/drawing/{job_id}/confirm",
@@ -933,7 +937,7 @@ class TestDrawingConfirm:
 class TestTextModeIntegration:
     """Integration tests: text mode → template matching → confirm → generate."""
 
-    def test_text_to_confirm_full_flow(
+    async def test_text_to_confirm_full_flow(
         self, client: TestClient, monkeypatch
     ) -> None:
         """Full lifecycle: text input → intent_parsed with params → confirm → completed."""
@@ -975,7 +979,7 @@ class TestTextModeIntegration:
         status_resp = client.get(f"/api/generate/{job_id}")
         assert status_resp.json()["status"] == "completed"
 
-    def test_text_mode_no_match_still_works(self, client: TestClient) -> None:
+    async def test_text_mode_no_match_still_works(self, client: TestClient) -> None:
         """When no template matches, should still complete the flow gracefully."""
         resp = client.post(
             "/api/generate", json={"text": "一个完全未知的东西xyz"}
@@ -1000,7 +1004,7 @@ class TestTextModeIntegration:
 class TestIntentParserIntegration:
     """Tests for IntentParser integration in text generate route."""
 
-    def test_intent_parser_high_confidence_routes_to_template(
+    async def test_intent_parser_high_confidence_routes_to_template(
         self, client: TestClient, monkeypatch,
     ) -> None:
         """High-confidence IntentParser result routes to template by part_type."""
@@ -1032,7 +1036,7 @@ class TestIntentParserIntegration:
         assert parsed[0]["intent"]["confidence"] == 0.9
         assert parsed[0]["intent"]["part_type"] == "rotational"
 
-    def test_intent_parser_low_confidence_falls_back(
+    async def test_intent_parser_low_confidence_falls_back(
         self, client: TestClient, monkeypatch,
     ) -> None:
         """Low-confidence IntentParser falls back to keyword matching."""
@@ -1059,7 +1063,7 @@ class TestIntentParserIntegration:
         assert parsed[0].get("intent") is not None
         assert parsed[0]["intent"]["confidence"] == 0.3
 
-    def test_intent_parser_failure_degrades_to_keyword_matching(
+    async def test_intent_parser_failure_degrades_to_keyword_matching(
         self, client: TestClient, monkeypatch,
     ) -> None:
         """IntentParser exception degrades gracefully to keyword matching."""

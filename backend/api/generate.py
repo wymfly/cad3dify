@@ -267,7 +267,7 @@ async def generate_text(body: TextGenerateRequest) -> EventSourceResponse:
     Flow: text → IntentParser → pause for confirmation → generate
     """
     job_id = str(uuid.uuid4())
-    job = create_job(job_id, input_type="text", input_text=body.text)
+    job = await create_job(job_id, input_type="text", input_text=body.text)
 
     async def event_stream() -> AsyncGenerator[dict[str, str], None]:
         yield _sse("job_created", {
@@ -312,9 +312,9 @@ async def generate_text(body: TextGenerateRequest) -> EventSourceResponse:
         if intent_data:
             result_data["intent"] = intent_data
         if result_data:
-            update_job(job_id, result=result_data)
+            await update_job(job_id, result=result_data)
 
-        update_job(job_id, status=JobStatus.INTENT_PARSED)
+        await update_job(job_id, status=JobStatus.INTENT_PARSED)
         yield _sse("intent_parsed", {
             "job_id": job_id,
             "status": JobStatus.INTENT_PARSED.value,
@@ -325,7 +325,7 @@ async def generate_text(body: TextGenerateRequest) -> EventSourceResponse:
         })
 
         # Pause — client must call POST /generate/{job_id}/confirm
-        update_job(job_id, status=JobStatus.AWAITING_CONFIRMATION)
+        await update_job(job_id, status=JobStatus.AWAITING_CONFIRMATION)
         yield _sse("awaiting_confirmation", {
             "job_id": job_id,
             "status": JobStatus.AWAITING_CONFIRMATION.value,
@@ -353,7 +353,7 @@ async def generate_drawing(
     config = _parse_pipeline_config(pipeline_config)
 
     job_id = str(uuid.uuid4())
-    job = create_job(job_id, input_type="drawing")
+    job = await create_job(job_id, input_type="drawing")
 
     # Persist uploaded image to job directory
     job_dir = ensure_job_dir(job_id)
@@ -364,7 +364,7 @@ async def generate_drawing(
         f.write(content)
 
     # Store image_path and config in job for later use by confirm endpoint
-    update_job(job_id, image_path=image_path)
+    await update_job(job_id, image_path=image_path)
 
     async def event_stream() -> AsyncGenerator[dict[str, str], None]:
         # 1. job_created
@@ -385,7 +385,7 @@ async def generate_drawing(
                 _run_analyze_drawing, image_path,
             )
         except Exception as exc:
-            update_job(job_id, status=JobStatus.FAILED, error=str(exc))
+            await update_job(job_id, status=JobStatus.FAILED, error=str(exc))
             yield _sse("failed", {
                 "job_id": job_id,
                 "status": JobStatus.FAILED.value,
@@ -394,7 +394,7 @@ async def generate_drawing(
             return
 
         if spec is None:
-            update_job(
+            await update_job(
                 job_id,
                 status=JobStatus.FAILED,
                 error="图纸分析返回空结果",
@@ -408,7 +408,7 @@ async def generate_drawing(
 
         # 3. Store spec in job and pause for user confirmation
         spec_data = spec.model_dump() if hasattr(spec, "model_dump") else spec
-        update_job(
+        await update_job(
             job_id,
             status=JobStatus.AWAITING_DRAWING_CONFIRMATION,
             drawing_spec=spec_data,
@@ -439,7 +439,7 @@ async def confirm_drawing_spec(
 
     Flow: confirmed_spec → generate_from_drawing_spec → STEP → GLB → completed
     """
-    job = get_job(job_id)
+    job = await get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
     if job.status != JobStatus.AWAITING_DRAWING_CONFIRMATION:
@@ -470,7 +470,7 @@ async def confirm_drawing_spec(
             persist_corrections(job_id, corrections)
 
     # Save confirmed spec and transition to GENERATING
-    update_job(
+    await update_job(
         job_id,
         drawing_spec_confirmed=body.confirmed_spec,
         status=JobStatus.GENERATING,
@@ -496,7 +496,7 @@ async def confirm_drawing_spec(
 
             confirmed_spec = DrawingSpec(**body.confirmed_spec)
         except Exception as exc:
-            update_job(job_id, status=JobStatus.FAILED, error=str(exc))
+            await update_job(job_id, status=JobStatus.FAILED, error=str(exc))
             yield _sse("failed", {
                 "job_id": job_id,
                 "status": JobStatus.FAILED.value,
@@ -523,7 +523,7 @@ async def confirm_drawing_spec(
             data = event.get("data", {})
             payload = {"job_id": job_id, **data, "status": event_type}
             if event_type == "refining":
-                update_job(job_id, status=JobStatus.REFINING)
+                await update_job(job_id, status=JobStatus.REFINING)
             yield _sse(event_type, payload)
 
         # Check pipeline result
@@ -532,7 +532,7 @@ async def confirm_drawing_spec(
             pipeline_task.result()
         except Exception as exc:
             pipeline_failed = True
-            update_job(job_id, status=JobStatus.FAILED, error=str(exc))
+            await update_job(job_id, status=JobStatus.FAILED, error=str(exc))
             yield _sse("failed", {
                 "job_id": job_id,
                 "status": JobStatus.FAILED.value,
@@ -541,7 +541,7 @@ async def confirm_drawing_spec(
 
         if not pipeline_failed and os.path.exists(step_path):
             # Convert STEP → GLB for preview
-            update_job(job_id, status=JobStatus.REFINING)
+            await update_job(job_id, status=JobStatus.REFINING)
             yield _sse("refining", {
                 "job_id": job_id,
                 "status": JobStatus.REFINING.value,
@@ -565,7 +565,7 @@ async def confirm_drawing_spec(
                 _run_printability_check, step_path,
             )
 
-            update_job(
+            await update_job(
                 job_id,
                 status=JobStatus.COMPLETED,
                 result={
@@ -585,7 +585,7 @@ async def confirm_drawing_spec(
                 "printability": printability_data,
             })
         elif not pipeline_failed and not os.path.exists(step_path):
-            update_job(
+            await update_job(
                 job_id,
                 status=JobStatus.FAILED,
                 error="管道执行完成但未生成 STEP 文件",
@@ -617,7 +617,7 @@ async def confirm_params(
     job_id: str, body: ConfirmRequest
 ) -> EventSourceResponse:
     """Confirm parameters and resume the generate pipeline."""
-    job = get_job(job_id)
+    job = await get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
     if job.status != JobStatus.AWAITING_CONFIRMATION:
@@ -629,7 +629,7 @@ async def confirm_params(
             ),
         )
 
-    update_job(job_id, status=JobStatus.GENERATING)
+    await update_job(job_id, status=JobStatus.GENERATING)
     job_dir = ensure_job_dir(job_id)
     step_path = str(get_step_path(job_id))
 
@@ -649,7 +649,7 @@ async def confirm_params(
 
             if success and Path(step_path).exists():
                 # Convert STEP → GLB for preview
-                update_job(job_id, status=JobStatus.REFINING)
+                await update_job(job_id, status=JobStatus.REFINING)
                 yield _sse("refining", {
                     "job_id": job_id,
                     "status": JobStatus.REFINING.value,
@@ -669,7 +669,7 @@ async def confirm_params(
                     _run_printability_check, step_path,
                 )
 
-                update_job(
+                await update_job(
                     job_id,
                     status=JobStatus.COMPLETED,
                     result={
@@ -691,14 +691,14 @@ async def confirm_params(
             else:
                 # No template matched or execution failed — still complete
                 # gracefully (no STEP, no model_url)
-                update_job(job_id, status=JobStatus.REFINING)
+                await update_job(job_id, status=JobStatus.REFINING)
                 yield _sse("refining", {
                     "job_id": job_id,
                     "status": JobStatus.REFINING.value,
                     "message": "正在优化模型…",
                 })
 
-                update_job(
+                await update_job(
                     job_id,
                     status=JobStatus.COMPLETED,
                     result={
@@ -712,7 +712,7 @@ async def confirm_params(
                     "message": "生成完成",
                 })
         except Exception as exc:
-            update_job(job_id, status=JobStatus.FAILED, error=str(exc))
+            await update_job(job_id, status=JobStatus.FAILED, error=str(exc))
             yield _sse("failed", {
                 "job_id": job_id,
                 "status": JobStatus.FAILED.value,
@@ -730,7 +730,7 @@ async def confirm_params(
 @router.get("/generate/jobs")
 async def list_all_jobs() -> list[dict[str, Any]]:
     """Return all jobs (for debugging / dashboard)."""
-    return [j.model_dump() for j in list_jobs()]
+    return [j.model_dump() for j in await list_jobs()]
 
 
 # ---------------------------------------------------------------------------
@@ -741,7 +741,7 @@ async def list_all_jobs() -> list[dict[str, Any]]:
 @router.get("/generate/{job_id}")
 async def get_job_status(job_id: str) -> dict[str, Any]:
     """Return current job state."""
-    job = get_job(job_id)
+    job = await get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
     return job.model_dump()

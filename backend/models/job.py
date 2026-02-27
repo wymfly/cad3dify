@@ -35,7 +35,7 @@ class JobStatus(str, Enum):
 
 
 class Job(BaseModel):
-    """In-memory job record."""
+    """Job record (API-layer data object)."""
 
     job_id: str
     status: JobStatus = JobStatus.CREATED
@@ -55,42 +55,111 @@ class Job(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# In-memory job store
+# ORM ↔ Pydantic conversion
 # ---------------------------------------------------------------------------
 
-_jobs: dict[str, Job] = {}
+
+def _orm_to_job(orm: Any) -> Job:
+    """Convert a JobModel ORM instance to a Pydantic Job."""
+    created_at = ""
+    if orm.created_at is not None:
+        created_at = (
+            orm.created_at.isoformat()
+            if isinstance(orm.created_at, datetime)
+            else str(orm.created_at)
+        )
+    return Job(
+        job_id=orm.job_id,
+        status=JobStatus(orm.status),
+        input_type=orm.input_type or "text",
+        input_text=orm.input_text or "",
+        recommendations=orm.recommendations or [],
+        drawing_spec=orm.drawing_spec,
+        drawing_spec_confirmed=orm.drawing_spec_confirmed,
+        image_path=orm.image_path,
+        result=orm.result,
+        error=orm.error,
+        created_at=created_at,
+    )
 
 
-def create_job(job_id: str, input_type: str = "text", input_text: str = "") -> Job:
-    """Create and store a new job."""
-    job = Job(job_id=job_id, input_type=input_type, input_text=input_text)
-    _jobs[job_id] = job
-    return job
+# ---------------------------------------------------------------------------
+# Async job store (delegates to SQLite repository)
+# ---------------------------------------------------------------------------
 
 
-def get_job(job_id: str) -> Optional[Job]:
+async def create_job(
+    job_id: str, input_type: str = "text", input_text: str = "",
+) -> Job:
+    """Create and persist a new job."""
+    from backend.db.database import async_session
+    from backend.db.repository import create_job as repo_create
+
+    async with async_session() as session:
+        orm_job = await repo_create(
+            session,
+            job_id=job_id,
+            status=JobStatus.CREATED.value,
+            input_type=input_type,
+            input_text=input_text,
+            recommendations=[],
+        )
+        await session.commit()
+        return _orm_to_job(orm_job)
+
+
+async def get_job(job_id: str) -> Optional[Job]:
     """Retrieve a job by ID, or None."""
-    return _jobs.get(job_id)
+    from backend.db.database import async_session
+    from backend.db.repository import get_job as repo_get
+
+    async with async_session() as session:
+        orm_job = await repo_get(session, job_id)
+        if orm_job is None:
+            return None
+        return _orm_to_job(orm_job)
 
 
-def update_job(job_id: str, **kwargs: Any) -> Job:
+async def update_job(job_id: str, **kwargs: Any) -> Job:
     """Update fields on an existing job. Raises KeyError if not found."""
-    job = _jobs[job_id]
-    for k, v in kwargs.items():
-        setattr(job, k, v)
-    return job
+    from backend.db.database import async_session
+    from backend.db.repository import update_job as repo_update
+
+    async with async_session() as session:
+        orm_job = await repo_update(session, job_id, **kwargs)
+        await session.commit()
+        return _orm_to_job(orm_job)
 
 
-def delete_job(job_id: str) -> None:
+async def delete_job(job_id: str) -> None:
     """Remove a job from the store."""
-    _jobs.pop(job_id, None)
+    from backend.db.database import async_session
+    from backend.db.models import JobModel
+
+    async with async_session() as session:
+        orm_job = await session.get(JobModel, job_id)
+        if orm_job is not None:
+            await session.delete(orm_job)
+            await session.commit()
 
 
-def list_jobs() -> list[Job]:
+async def list_jobs() -> list[Job]:
     """Return all jobs."""
-    return list(_jobs.values())
+    from backend.db.database import async_session
+    from backend.db.repository import list_jobs as repo_list
+
+    async with async_session() as session:
+        orm_jobs, _ = await repo_list(session, page=1, page_size=10000)
+        return [_orm_to_job(j) for j in orm_jobs]
 
 
-def clear_jobs() -> None:
+async def clear_jobs() -> None:
     """Clear all jobs (for testing)."""
-    _jobs.clear()
+    from sqlalchemy import delete as sa_delete
+
+    from backend.db.database import async_session
+    from backend.db.models import JobModel
+
+    async with async_session() as session:
+        await session.execute(sa_delete(JobModel))
+        await session.commit()

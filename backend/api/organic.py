@@ -95,7 +95,7 @@ async def generate_organic(
             detail="At least one of prompt or reference_image must be provided.",
         )
     job_id = str(uuid.uuid4())
-    create_organic_job(
+    await create_organic_job(
         job_id=job_id,
         prompt=request.prompt,
         provider=request.provider,
@@ -105,18 +105,18 @@ async def generate_organic(
     async def event_stream() -> AsyncGenerator[dict[str, str], None]:
         try:
             # Stage 1: Analyze prompt
-            update_organic_job(job_id, status=OrganicJobStatus.ANALYZING, progress=0.05)
+            await update_organic_job(job_id, status=OrganicJobStatus.ANALYZING, progress=0.05)
             yield _sse_event(job_id, "analyzing", "Analyzing prompt...", 0.05)
 
             from backend.core.organic_spec_builder import OrganicSpecBuilder
 
             builder = OrganicSpecBuilder()
             spec = await builder.build(request)
-            update_organic_job(job_id, progress=0.15)
+            await update_organic_job(job_id, progress=0.15)
             yield _sse_event(job_id, "analyzing", "Spec built", 0.15)
 
             # Stage 2: Generate mesh
-            update_organic_job(
+            await update_organic_job(
                 job_id, status=OrganicJobStatus.GENERATING, progress=0.2
             )
             yield _sse_event(job_id, "generating", "Generating 3D mesh...", 0.2)
@@ -129,11 +129,11 @@ async def generate_organic(
                 reference_image=reference_image_bytes,
                 on_progress=lambda msg, p: None,
             )
-            update_organic_job(job_id, progress=0.6)
+            await update_organic_job(job_id, progress=0.6)
             yield _sse_event(job_id, "generating", "Mesh generated", 0.6)
 
             # Stage 3: Post-process (step-by-step with SSE events)
-            update_organic_job(
+            await update_organic_job(
                 job_id, status=OrganicJobStatus.POST_PROCESSING, progress=0.65
             )
             yield _sse_event(
@@ -229,7 +229,7 @@ async def generate_organic(
                 step="validate", step_status="running",
             )
             stats = processor.validate_mesh(mesh, boolean_cuts_applied)
-            update_organic_job(job_id, progress=0.9)
+            await update_organic_job(job_id, progress=0.9)
             yield _sse_event(
                 job_id, "post_processing", "质量验证完成", 0.9,
                 step="validate", step_status="success",
@@ -297,7 +297,7 @@ async def generate_organic(
                 generation_time_s=0.0,
                 post_processing_time_s=0.0,
             )
-            update_organic_job(
+            await update_organic_job(
                 job_id,
                 status=OrganicJobStatus.COMPLETED,
                 progress=1.0,
@@ -318,7 +318,7 @@ async def generate_organic(
             )
 
         except Exception as e:
-            update_organic_job(
+            await update_organic_job(
                 job_id,
                 status=OrganicJobStatus.FAILED,
                 error=str(e),
@@ -413,7 +413,7 @@ async def get_organic_job_status(
     settings: Settings = Depends(_require_organic_enabled),
 ) -> dict[str, Any]:
     """Get the status of an organic generation job."""
-    job = get_organic_job(job_id)
+    job = await get_organic_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
