@@ -88,7 +88,12 @@ class TripoProvider(MeshProvider):
             status = poll_data.get("data", {}).get("status", "unknown")
 
             if status == "success":
-                model_url = poll_data["data"]["output"]["model"]
+                output = poll_data["data"]["output"]
+                model_url = output.get("pbr_model") or output.get("model")
+                if not model_url:
+                    raise RuntimeError(
+                        f"Tripo3D task {task_id}: no model URL in output: {list(output.keys())}"
+                    )
                 break
             elif status in ("failed", "cancelled"):
                 raise RuntimeError(f"Tripo3D task {task_id} {status}")
