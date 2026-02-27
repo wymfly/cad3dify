@@ -20,4 +20,4 @@ class Settings(BaseSettings):
     execution_timeout_s: int = 60
     execution_memory_mb: int = 2048
 
-    model_config = {"env_file": ".env", "env_prefix": "CAD3DIFY_"}
+    model_config = {"env_file": ".env", "extra": "ignore"}
