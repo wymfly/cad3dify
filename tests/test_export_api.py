@@ -71,6 +71,7 @@ class TestExportRequest:
         self, client: TestClient, tmp_path: Path, monkeypatch,
     ) -> None:
         """When job_id is provided, it should resolve through get_step_path."""
+        import backend.api.export as export_mod
         import backend.infra.outputs as outputs_mod
 
         fake_outputs = tmp_path / "outputs"
@@ -81,6 +82,7 @@ class TestExportRequest:
         step_file.write_text("STEP;from-job")
 
         monkeypatch.setattr(outputs_mod, "OUTPUTS_DIR", fake_outputs)
+        monkeypatch.setattr(export_mod, "_ALLOWED_DIR", fake_outputs)
 
         resp = client.post(
             "/api/export",

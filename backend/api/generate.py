@@ -171,6 +171,8 @@ def _parse_pipeline_config(config_json: str) -> PipelineConfig:
         raw = json.loads(config_json)
     except json.JSONDecodeError:
         return PRESETS["balanced"]
+    if not isinstance(raw, dict):
+        return PRESETS["balanced"]
     preset = raw.get("preset", "balanced")
     if preset in PRESETS and len(raw) <= 2:  # only preset key (+ maybe extra)
         return PRESETS[preset]
@@ -270,18 +272,36 @@ async def generate_drawing(
             "message": "正在生成 3D 模型…",
         })
 
-        # 2. Run V2 pipeline in worker thread
-        try:
-            await asyncio.to_thread(
-                _run_v2_pipeline,
-                image_filepath=image_path,
-                output_filepath=step_path,
-                config=config,
-                on_spec_ready=bridge.on_spec_ready,
-                on_progress=bridge.on_progress,
-            )
+        # 2. Run V2 pipeline in worker thread (non-blocking)
+        pipeline_task = asyncio.ensure_future(asyncio.to_thread(
+            _run_v2_pipeline,
+            image_filepath=image_path,
+            output_filepath=step_path,
+            config=config,
+            on_spec_ready=bridge.on_spec_ready,
+            on_progress=bridge.on_progress,
+        ))
 
-            # 3. Convert STEP → GLB for preview
+        # 3. Stream progress events in real-time while pipeline runs
+        while not pipeline_task.done():
+            # Non-blocking poll + yield control to event loop
+            try:
+                event = bridge.queue.get_nowait()
+            except Exception:
+                await asyncio.sleep(0.2)
+                continue
+            event_type = event.get("event", "progress")
+            data = event.get("data", {})
+            payload = {"job_id": job_id, "status": event_type, **data}
+            if event_type == "refining":
+                update_job(job_id, status=JobStatus.REFINING)
+            yield _sse(event_type, payload)
+
+        # 4. Check pipeline result and finalize
+        try:
+            pipeline_task.result()  # re-raise if pipeline failed
+
+            # Convert STEP → GLB for preview
             if os.path.exists(step_path):
                 await asyncio.to_thread(_convert_step_to_glb, step_path, glb_path)
                 model_url = get_model_url(job_id, fmt="glb")
@@ -292,18 +312,13 @@ async def generate_drawing(
         except Exception as exc:
             bridge.fail(f"管道执行失败: {exc}")
 
-        # 4. Drain bridge queue → SSE events
+        # 5. Drain remaining events (completion/failure)
         while not bridge.queue.empty():
             event = bridge.queue.get_nowait()
             event_type = event.get("event", "progress")
             data = event.get("data", {})
-            payload = {
-                "job_id": job_id,
-                "status": event_type,
-                **data,
-            }
+            payload = {"job_id": job_id, "status": event_type, **data}
 
-            # Update job status for terminal events
             if event_type == "completed":
                 update_job(
                     job_id,

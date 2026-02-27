@@ -42,6 +42,11 @@ async def export_model(body: ExportRequest) -> FileResponse:
         from backend.infra.outputs import get_step_path
 
         resolved = get_step_path(body.job_id)
+        if not resolved.is_relative_to(_ALLOWED_DIR):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: path outside allowed directory",
+            )
     elif body.step_path:
         resolved = Path(body.step_path).resolve()
         if not resolved.is_relative_to(_ALLOWED_DIR):
