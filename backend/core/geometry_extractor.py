@@ -24,7 +24,7 @@ def extract_geometry_from_step(step_path: str) -> dict[str, Any]:
         volume_cm3: float
         min_hole_diameter: float in mm (may be None)
     """
-    import cadquery as cq
+    import cadquery as cq  # noqa: E402 — lazy-loaded heavy dependency
 
     wp = cq.importers.importStep(step_path)
     shape = wp.val()
@@ -50,7 +50,7 @@ def extract_geometry_from_mesh(mesh_path: str) -> dict[str, Any]:
 
     min_wall_thickness is None for mesh files (computationally expensive).
     """
-    import trimesh
+    import trimesh  # noqa: E402 — lazy-loaded heavy dependency
 
     mesh = trimesh.load(mesh_path)
     bounds = mesh.bounds  # [[min_x, min_y, min_z], [max_x, max_y, max_z]]
