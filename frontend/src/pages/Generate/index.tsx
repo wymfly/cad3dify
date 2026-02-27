@@ -1,11 +1,12 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Typography, Row, Col, Button, Space } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import PipelineConfigBar from '../../components/PipelineConfigBar/index.tsx';
+import PipelineConfigBar, { DEFAULT_CONFIG } from '../../components/PipelineConfigBar/index.tsx';
 import Viewer3D from '../../components/Viewer3D/index.tsx';
 import ParamForm from '../../components/ParamForm/index.tsx';
 import ChatInput from './ChatInput.tsx';
 import GenerateWorkflow, { useGenerateWorkflow } from './GenerateWorkflow.tsx';
+import type { PipelineConfig } from '../../types/pipeline.ts';
 
 const { Title, Paragraph } = Typography;
 
@@ -17,6 +18,8 @@ export default function Generate() {
     confirmParams,
     reset,
   } = useGenerateWorkflow();
+
+  const [pipelineConfig, setPipelineConfig] = useState<PipelineConfig>(DEFAULT_CONFIG);
 
   const [paramValues, setParamValues] = useState<
     Record<string, number | string | boolean>
@@ -86,8 +89,8 @@ export default function Generate() {
           <Space orientation="vertical" style={{ width: '100%' }} size="middle">
             {/* Chat input */}
             <ChatInput
-              onSendText={startTextGenerate}
-              onSendImage={startDrawingGenerate}
+              onSendText={(text) => startTextGenerate(text, pipelineConfig)}
+              onSendImage={(file) => startDrawingGenerate(file, pipelineConfig)}
               disabled={isInputDisabled}
               loading={workflow.phase === 'parsing'}
             />
@@ -119,7 +122,7 @@ export default function Generate() {
             )}
 
             {/* Pipeline config (collapsed) */}
-            <PipelineConfigBar />
+            <PipelineConfigBar value={pipelineConfig} onChange={setPipelineConfig} />
           </Space>
         </Col>
 
