@@ -292,32 +292,43 @@ async def generate_drawing(
                 continue
             event_type = event.get("event", "progress")
             data = event.get("data", {})
-            payload = {"job_id": job_id, "status": event_type, **data}
+            payload = {"job_id": job_id, **data, "status": event_type}
             if event_type == "refining":
                 update_job(job_id, status=JobStatus.REFINING)
             yield _sse(event_type, payload)
 
         # 4. Check pipeline result and finalize
+        pipeline_failed = False
         try:
             pipeline_task.result()  # re-raise if pipeline failed
-
-            # Convert STEP → GLB for preview
-            if os.path.exists(step_path):
-                await asyncio.to_thread(_convert_step_to_glb, step_path, glb_path)
-                model_url = get_model_url(job_id, fmt="glb")
-                bridge.complete(model_url=model_url, step_path=step_path)
-            else:
-                bridge.fail("管道执行完成但未生成 STEP 文件")
-
         except Exception as exc:
+            pipeline_failed = True
             bridge.fail(f"管道执行失败: {exc}")
+
+        if not pipeline_failed and os.path.exists(step_path):
+            # STEP exists — try GLB conversion
+            model_url: str | None = None
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(
+                        _convert_step_to_glb, step_path, glb_path,
+                    ),
+                    timeout=30,
+                )
+                model_url = get_model_url(job_id, fmt="glb")
+            except Exception:
+                # GLB conversion failed/timed out; still complete with STEP only
+                pass
+            bridge.complete(model_url=model_url, step_path=step_path)
+        elif not pipeline_failed and not os.path.exists(step_path):
+            bridge.fail("管道执行完成但未生成 STEP 文件")
 
         # 5. Drain remaining events (completion/failure)
         while not bridge.queue.empty():
             event = bridge.queue.get_nowait()
             event_type = event.get("event", "progress")
             data = event.get("data", {})
-            payload = {"job_id": job_id, "status": event_type, **data}
+            payload = {"job_id": job_id, **data, "status": event_type}
 
             if event_type == "completed":
                 update_job(
