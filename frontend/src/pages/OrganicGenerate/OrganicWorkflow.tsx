@@ -185,19 +185,40 @@ export function useOrganicWorkflow() {
       setState({
         ...INITIAL_STATE,
         phase: 'analyzing',
-        message: '正在分析参考图片…',
+        message: '正在上传参考图片…',
       });
 
-      const formData = new FormData();
-      formData.append('image', file);
-      formData.append('constraints', JSON.stringify(constraints));
-      formData.append('quality_mode', qualityMode);
-      formData.append('provider', provider);
-
       try {
-        const resp = await fetch('/api/generate/organic/upload', {
+        // Step 1: Upload image to get file_id
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const uploadResp = await fetch('/api/generate/organic/upload', {
           method: 'POST',
           body: formData,
+          signal: abort.signal,
+        });
+
+        if (!uploadResp.ok) {
+          const err = await uploadResp.json().catch(() => ({ detail: `HTTP ${uploadResp.status}` }));
+          throw new Error(err.detail || `上传失败: HTTP ${uploadResp.status}`);
+        }
+
+        const { file_id } = await uploadResp.json();
+
+        setState((prev) => ({ ...prev, message: '正在分析参考图片…' }));
+
+        // Step 2: Start generation with reference_image
+        const resp = await fetch('/api/generate/organic', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: file.name.replace(/\.[^.]+$/, '') || 'Generate from reference image',
+            reference_image: file_id,
+            constraints,
+            quality_mode: qualityMode,
+            provider,
+          }),
           signal: abort.signal,
         });
 

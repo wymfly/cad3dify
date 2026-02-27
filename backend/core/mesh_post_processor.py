@@ -125,7 +125,7 @@ def _repair_mesh(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
             raise ValueError("PyMeshLab returned empty mesh")
         mesh = trimesh.Trimesh(vertices=verts, faces=faces_arr)
         logger.info("Mesh repaired with PyMeshLab")
-    except (ImportError, Exception) as e:
+    except Exception as e:
         # Fallback to basic trimesh repair
         logger.info("PyMeshLab not available, using trimesh repair: {}", e)
         trimesh.repair.fix_normals(mesh)
