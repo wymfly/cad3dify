@@ -38,3 +38,10 @@ app.include_router(templates.router, prefix="/api")
 app.include_router(standards.router, prefix="/api")
 app.include_router(print_config.router, prefix="/api")
 app.include_router(rag.router, prefix="/api")
+
+from pathlib import Path as _Path
+from starlette.staticfiles import StaticFiles
+
+_outputs_dir = _Path("outputs")
+_outputs_dir.mkdir(exist_ok=True)
+app.mount("/outputs", StaticFiles(directory=str(_outputs_dir)), name="outputs")
