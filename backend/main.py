@@ -26,6 +26,8 @@ from backend.api import (
     standards,
     templates,
 )
+from backend.api.v1.errors import register_error_handlers
+from backend.api.v1.router import router as v1_router
 from backend.config import Settings
 from backend.db.database import init_db
 
@@ -47,6 +49,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# V1 统一路由
+app.include_router(v1_router, prefix="/api/v1")
+register_error_handlers(app)
+
+# 旧版路由（保持兼容，后续移除）
 app.include_router(health.router, prefix="/api")
 app.include_router(pipeline.router, prefix="/api/pipeline")
 app.include_router(generate.router, prefix="/api")
