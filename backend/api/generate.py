@@ -12,13 +12,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 import uuid
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -538,12 +537,28 @@ async def confirm_drawing_spec(
                 await update_job(job_id, status=JobStatus.REFINING)
             yield _sse(event_type, payload)
 
+        # Drain remaining bridge events BEFORE completion processing.
+        # Race condition fix: the pipeline thread may enqueue events (e.g.
+        # the final refinement_round) after pipeline_task.done() becomes True
+        # but before we yield the completed event.  Draining first ensures
+        # the completed event is the LAST event the client receives.
+        while not bridge.queue.empty():
+            event = bridge.queue.get_nowait()
+            event_type = event.get("event", "progress")
+            data = event.get("data", {})
+            payload = {"job_id": job_id, **data, "status": event_type}
+            if event_type == "refining":
+                await update_job(job_id, status=JobStatus.REFINING)
+            yield _sse(event_type, payload)
+
         # Check pipeline result
         pipeline_failed = False
         try:
             pipeline_task.result()
+            logger.info("Pipeline task completed successfully for job {}", job_id)
         except Exception as exc:
             pipeline_failed = True
+            logger.error("Pipeline task failed for job {}: {}", job_id, exc)
             await update_job(job_id, status=JobStatus.FAILED, error=str(exc))
             yield _sse("failed", {
                 "job_id": job_id,
@@ -562,6 +577,7 @@ async def confirm_drawing_spec(
 
             model_url: str | None = None
             try:
+                logger.info("Starting STEP→GLB conversion for job {}", job_id)
                 await asyncio.wait_for(
                     asyncio.to_thread(
                         _convert_step_to_glb, step_path, glb_path,
@@ -569,25 +585,30 @@ async def confirm_drawing_spec(
                     timeout=30,
                 )
                 model_url = get_model_url(job_id, fmt="glb")
+                logger.info("STEP→GLB conversion done for job {}, url={}", job_id, model_url)
             except Exception as exc:
-                logger.warning("STEP→GLB conversion failed for job %s: %s", job_id, exc)
+                logger.warning("STEP→GLB conversion failed for job {}: {}", job_id, exc)
 
             # Run printability check
             printability_data = await asyncio.to_thread(
                 _run_printability_check, step_path,
             )
 
-            await update_job(
-                job_id,
-                status=JobStatus.COMPLETED,
-                result={
-                    "message": "生成完成",
-                    "model_url": model_url,
-                    "step_path": step_path,
-                    "confirmed_spec": body.confirmed_spec,
-                },
-                printability_result=printability_data,
-            )
+            try:
+                await update_job(
+                    job_id,
+                    status=JobStatus.COMPLETED,
+                    result={
+                        "message": "生成完成",
+                        "model_url": model_url,
+                        "step_path": step_path,
+                        "confirmed_spec": body.confirmed_spec,
+                    },
+                    printability_result=printability_data,
+                )
+            except Exception as exc:
+                logger.error("Failed to update job {} to COMPLETED: {}", job_id, exc)
+
             yield _sse("completed", {
                 "job_id": job_id,
                 "status": JobStatus.COMPLETED.value,
@@ -607,14 +628,6 @@ async def confirm_drawing_spec(
                 "status": JobStatus.FAILED.value,
                 "message": "管道执行完成但未生成 STEP 文件",
             })
-
-        # Drain remaining bridge events
-        while not bridge.queue.empty():
-            event = bridge.queue.get_nowait()
-            event_type = event.get("event", "progress")
-            data = event.get("data", {})
-            payload = {"job_id": job_id, **data, "status": event_type}
-            yield _sse(event_type, payload)
 
     return EventSourceResponse(event_stream())
 
