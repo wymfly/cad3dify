@@ -79,6 +79,7 @@ def _orm_to_job(orm: Any) -> Job:
         drawing_spec_confirmed=orm.drawing_spec_confirmed,
         image_path=orm.image_path,
         result=orm.result,
+        printability=orm.printability_result,
         error=orm.error,
         created_at=created_at,
     )

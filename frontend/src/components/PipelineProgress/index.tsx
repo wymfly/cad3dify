@@ -43,6 +43,9 @@ export interface PipelineProgressProps {
   message?: string;
   startTime?: number;
   error?: string | null;
+  /** 父组件管理的"最后活跃步骤"，防止组件 remount 时丢失 */
+  lastActiveStep?: number;
+  onActiveStepChange?: (step: number) => void;
 }
 
 export default function PipelineProgress({
@@ -50,17 +53,21 @@ export default function PipelineProgress({
   message,
   startTime,
   error,
+  lastActiveStep: externalLastStep,
+  onActiveStepChange,
 }: PipelineProgressProps) {
-  // 记住 failed 之前的最后活跃步骤，使错误图标正确渲染
-  const [lastActiveStep, setLastActiveStep] = useState(0);
+  // 本地 fallback：无外部管理时自行维护
+  const [internalLastStep, setInternalLastStep] = useState(0);
+  const lastActiveStep = externalLastStep ?? internalLastStep;
   const rawStep = PHASE_TO_STEP[phase];
   const currentStep = rawStep >= 0 ? rawStep : lastActiveStep;
 
   useEffect(() => {
     if (rawStep >= 0 && phase !== 'failed') {
-      setLastActiveStep(rawStep);
+      setInternalLastStep(rawStep);
+      onActiveStepChange?.(rawStep);
     }
-  }, [rawStep, phase]);
+  }, [rawStep, phase, onActiveStepChange]);
 
   const [elapsed, setElapsed] = useState<string | null>(null);
   useEffect(() => {

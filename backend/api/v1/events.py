@@ -73,8 +73,6 @@ async def subscribe_job_events(job_id: str) -> EventSourceResponse:
     if job is None:
         raise JobNotFoundError(job_id)
 
-    q = get_event_queue(job_id)
-
     async def event_stream() -> AsyncGenerator[dict[str, str], None]:
         # 先发送当前状态
         yield _sse("status", {
@@ -83,7 +81,7 @@ async def subscribe_job_events(job_id: str) -> EventSourceResponse:
             "message": f"已连接，当前状态: {job.status.value}",
         })
 
-        # 如果 Job 已终结，直接返回
+        # 如果 Job 已终结，直接返回（不创建队列，避免泄漏）
         if job.status.value in ("completed", "failed"):
             yield _sse(job.status.value, {
                 "job_id": job_id,
@@ -93,6 +91,8 @@ async def subscribe_job_events(job_id: str) -> EventSourceResponse:
                 "error": job.error,
             })
             return
+
+        q = get_event_queue(job_id)
 
         # 持续消费队列事件，带超时保护
         terminal_events = {"completed", "failed"}

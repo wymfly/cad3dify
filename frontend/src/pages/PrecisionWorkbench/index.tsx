@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Button, Typography, Empty } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useOutletContext } from 'react-router-dom';
@@ -37,6 +37,12 @@ export default function PrecisionWorkbench() {
 
   // SSE 事件订阅：当 job 激活时连接事件流
   const { events: sseEvents } = useJobEvents({ jobId: workflow.jobId });
+
+  // 管道进度步骤状态（提升到此处防止 PipelineProgress remount 丢失）
+  const [lastActiveStep, setLastActiveStep] = useState(0);
+  const handleActiveStepChange = useCallback((step: number) => {
+    setLastActiveStep(step);
+  }, []);
 
   // 跟踪管道开始时间
   const [startTime, setStartTime] = useState<number | null>(null);
@@ -110,6 +116,8 @@ export default function PrecisionWorkbench() {
             phase={workflow.phase}
             message={workflow.message}
             startTime={startTime ?? undefined}
+            lastActiveStep={lastActiveStep}
+            onActiveStepChange={handleActiveStepChange}
           />
         );
 
@@ -151,6 +159,8 @@ export default function PrecisionWorkbench() {
             phase={workflow.phase}
             message={workflow.message}
             startTime={startTime ?? undefined}
+            lastActiveStep={lastActiveStep}
+            onActiveStepChange={handleActiveStepChange}
           />
         );
 
@@ -169,6 +179,8 @@ export default function PrecisionWorkbench() {
               phase={workflow.phase}
               message={workflow.message}
               error={workflow.error}
+              lastActiveStep={lastActiveStep}
+              onActiveStepChange={handleActiveStepChange}
             />
             <Button
               type="primary"
@@ -203,6 +215,8 @@ export default function PrecisionWorkbench() {
     reset,
     previewStatus,
     retryPreview,
+    lastActiveStep,
+    handleActiveStepChange,
   ]);
 
   // === 右面板内容（按管道阶段自动切换）===

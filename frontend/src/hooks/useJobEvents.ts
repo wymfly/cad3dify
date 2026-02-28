@@ -102,21 +102,36 @@ export function useJobEvents({
       }
     };
 
-    source.addEventListener('progress', (e: MessageEvent) => {
-      const data = safeParse(e.data);
-      if (data) handleEvent(data);
-    });
+    // 后端使用命名 SSE 事件（event: generating 等），
+    // EventSource.onmessage 不会捕获命名事件，必须逐一注册。
+    const SSE_EVENT_TYPES = [
+      'status',
+      'progress',
+      'job_created',
+      'intent_parsed',
+      'awaiting_confirmation',
+      'analyzing',
+      'drawing_spec_ready',
+      'generating',
+      'refining',
+      'completed',
+      'failed',
+    ] as const;
 
-    source.addEventListener('completed', (e: MessageEvent) => {
-      const data = safeParse(e.data);
-      if (data) handleEvent({ ...data, status: 'completed' });
-    });
+    for (const eventType of SSE_EVENT_TYPES) {
+      source.addEventListener(eventType, (e: MessageEvent) => {
+        const data = safeParse(e.data);
+        if (!data) return;
+        // 确保 status 字段与事件类型一致
+        if (eventType === 'completed' || eventType === 'failed') {
+          handleEvent({ ...data, status: eventType });
+        } else {
+          handleEvent(data);
+        }
+      });
+    }
 
-    source.addEventListener('failed', (e: MessageEvent) => {
-      const data = safeParse(e.data);
-      if (data) handleEvent({ ...data, status: 'failed' });
-    });
-
+    // 兜底：捕获未列举的未命名事件
     source.onmessage = (e: MessageEvent) => {
       const data = safeParse(e.data);
       if (!data) return;
