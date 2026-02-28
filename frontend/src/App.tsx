@@ -4,7 +4,7 @@ import WorkbenchLayout from './layouts/WorkbenchLayout.tsx';
 import MainLayout from './layouts/MainLayout.tsx';
 import { GenerateWorkflowProvider } from './contexts/GenerateWorkflowContext.tsx';
 import { OrganicWorkflowProvider } from './contexts/OrganicWorkflowContext.tsx';
-import Generate from './pages/Generate/index.tsx';
+import PrecisionWorkbench from './pages/PrecisionWorkbench/index.tsx';
 import OrganicGenerate from './pages/OrganicGenerate/index.tsx';
 import Templates from './pages/Templates/index.tsx';
 import Benchmark from './pages/Benchmark/index.tsx';
@@ -25,7 +25,7 @@ export default function App() {
               {/* 新三栏工作台路由 */}
               <Route element={<WorkbenchLayout />}>
                 <Route path="/" element={<Navigate to="/precision" replace />} />
-                <Route path="/precision" element={<Generate />} />
+                <Route path="/precision" element={<PrecisionWorkbench />} />
                 <Route path="/organic" element={<OrganicGenerate />} />
                 <Route path="/library" element={<HistoryPage />} />
                 <Route path="/library/:jobId" element={<JobDetailPage />} />
