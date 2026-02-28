@@ -28,10 +28,17 @@ from backend.graph.nodes.lifecycle import _safe_dispatch
 
 
 async def _parse_intent(text: str) -> dict:
-    """Async intent parsing — delegates to existing IntentParser."""
+    """Async intent parsing — delegates to existing IntentParser.
+
+    Returns a plain dict (JSON-serializable) for storage in SQLAlchemy JSON columns.
+    """
     from backend.core.intent_parser import IntentParser
     parser = IntentParser()
-    return await parser.parse(text)
+    result = await parser.parse(text)
+    # IntentParser may return a Pydantic model; convert to dict for DB/JSON.
+    if hasattr(result, "model_dump"):
+        return result.model_dump()
+    return result
 
 
 def _run_analyze_vision(image_path: str) -> tuple:

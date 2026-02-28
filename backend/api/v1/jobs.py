@@ -33,6 +33,7 @@ from backend.models.job import (
 
 # SSE 格式化辅助（pipeline helper 由 LangGraph 节点替代）
 from backend.api.generate import _sse  # noqa: E402
+from backend.api.v1.events import emit_event  # bridge graph events → GET /events subscribers
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -155,6 +156,7 @@ async def create_job_endpoint(body: CreateJobRequest, request: Request) -> Event
     async def event_stream() -> AsyncGenerator[dict[str, str], None]:
         async for event in cad_graph.astream_events(initial_state, config=config, version="v2"):
             if event["event"] == "on_custom_event":
+                emit_event(job_id, event["name"], event["data"])
                 yield _sse(event["name"], event["data"])
 
     return EventSourceResponse(event_stream())
@@ -197,6 +199,7 @@ async def create_drawing_job(
     async def event_stream() -> AsyncGenerator[dict[str, str], None]:
         async for event in cad_graph.astream_events(initial_state, config=config, version="v2"):
             if event["event"] == "on_custom_event":
+                emit_event(job_id, event["name"], event["data"])
                 yield _sse(event["name"], event["data"])
 
     return EventSourceResponse(event_stream())
@@ -352,6 +355,7 @@ async def confirm_job(job_id: str, body: ConfirmRequest, request: Request) -> Ev
             version="v2",
         ):
             if event["event"] == "on_custom_event":
+                emit_event(job_id, event["name"], event["data"])
                 yield _sse(event["name"], event["data"])
 
     return EventSourceResponse(event_stream())
