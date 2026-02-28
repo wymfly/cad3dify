@@ -11,7 +11,7 @@ import type {
 } from '../types/standard.ts';
 import type { PrintProfile, PrintabilityResult } from '../types/printability.ts';
 
-const api = axios.create({ baseURL: '/api/v1' });
+const api = axios.create({ baseURL: '/api' });
 
 /** 统一 API 错误结构 */
 export interface ApiError {
@@ -32,14 +32,6 @@ export function extractApiError(err: unknown): ApiError {
   return { code: 'UNKNOWN', message: '未知错误' };
 }
 
-// 响应拦截器：统一错误格式
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    // 保留原始错误，供调用方 extractApiError
-    return Promise.reject(error);
-  },
-);
 
 export async function getTooltips(): Promise<Record<string, TooltipSpec>> {
   const { data } = await api.get<Record<string, TooltipSpec>>('/pipeline/tooltips');
@@ -253,7 +245,7 @@ export async function listJobs(params?: {
   status?: string;
   input_type?: string;
 }): Promise<PaginatedJobsResponse> {
-  const { data } = await api.get<PaginatedJobsResponse>('/jobs', { params });
+  const { data } = await api.get<PaginatedJobsResponse>('/v1/jobs', { params });
   return data;
 }
 
@@ -269,22 +261,22 @@ export interface JobDetail {
     model_url?: string;
     step_path?: string;
   } | null;
-  printability_result: PrintabilityResult | null;
+  printability: PrintabilityResult | null;
   error: string | null;
   created_at: string;
 }
 
 export async function getJobDetail(jobId: string): Promise<JobDetail> {
-  const { data } = await api.get<JobDetail>(`/jobs/${jobId}`);
+  const { data } = await api.get<JobDetail>(`/v1/jobs/${jobId}`);
   return data;
 }
 
 export async function deleteJob(jobId: string): Promise<void> {
-  await api.delete(`/jobs/${jobId}`);
+  await api.delete(`/v1/jobs/${jobId}`);
 }
 
 export async function regenerateJob(jobId: string): Promise<{ job_id: string; cloned_from: string; status: string }> {
-  const { data } = await api.post<{ job_id: string; cloned_from: string; status: string }>(`/jobs/${jobId}/regenerate`);
+  const { data } = await api.post<{ job_id: string; cloned_from: string; status: string }>(`/v1/jobs/${jobId}/regenerate`);
   return data;
 }
 
@@ -294,7 +286,7 @@ export async function previewParametric(
   params: Record<string, number>,
   signal?: AbortSignal,
 ): Promise<{ glb_url: string }> {
-  const { data } = await api.post<{ glb_url: string }>('/preview/parametric', {
+  const { data } = await api.post<{ glb_url: string }>('/v1/preview/parametric', {
     template_name: templateName,
     params,
   }, { signal });

@@ -1,8 +1,8 @@
 """存储抽象接口 — JobRepository + FileStorage Protocol。
 
-通过 Protocol 定义存储接口，实现可替换的后端：
-- SQLiteJobRepository → PostgresJobRepository（通过 DATABASE_URL 切换）
-- LocalFileStorage → S3FileStorage（通过 STORAGE_BACKEND 切换）
+通过 Protocol 定义存储接口，当前实现：
+- SQLiteJobRepository（默认）
+- LocalFileStorage（默认）
 """
 
 from __future__ import annotations

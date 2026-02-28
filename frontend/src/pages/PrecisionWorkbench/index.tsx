@@ -14,7 +14,7 @@ import PipelineLog from '../../components/PipelineLog/index.tsx';
 import DownloadPanel from '../../components/DownloadPanel/index.tsx';
 import PrintReport from '../../components/PrintReport/index.tsx';
 import Viewer3D from '../../components/Viewer3D/index.tsx';
-import type { JobEvent } from '../../hooks/useJobEvents.ts';
+import { useJobEvents, type JobEvent } from '../../hooks/useJobEvents.ts';
 
 const { Text, Title } = Typography;
 
@@ -34,8 +34,19 @@ export default function PrecisionWorkbench() {
   const [paramValues, setParamValues] = useState<
     Record<string, number | string | boolean>
   >({});
-  const [sseEvents] = useState<JobEvent[]>([]);
-  const [startTime] = useState<number | null>(null);
+
+  // SSE 事件订阅：当 job 激活时连接事件流
+  const { events: sseEvents } = useJobEvents({ jobId: workflow.jobId });
+
+  // 跟踪管道开始时间
+  const [startTime, setStartTime] = useState<number | null>(null);
+  useEffect(() => {
+    if (workflow.phase === 'generating' && startTime === null) {
+      setStartTime(Date.now());
+    } else if (workflow.phase === 'idle' || workflow.phase === 'completed' || workflow.phase === 'failed') {
+      setStartTime(null);
+    }
+  }, [workflow.phase, startTime]);
 
   // Initialize param values from parsed params
   useEffect(() => {
@@ -73,7 +84,7 @@ export default function PrecisionWorkbench() {
   }, [paramValues]);
 
   // Parametric preview during confirming
-  const { previewUrl } = useParametricPreview({
+  const { previewUrl, status: previewStatus, retry: retryPreview } = useParametricPreview({
     templateName: workflow.templateName,
     params: numericParams,
     enabled: workflow.phase === 'confirming' && !!workflow.templateName,
@@ -116,6 +127,8 @@ export default function PrecisionWorkbench() {
           <ParamForm
             params={workflow.parsedParams}
             values={paramValues}
+            previewStatus={previewStatus}
+            onRetryPreview={retryPreview}
             onChange={handleParamChange}
             onConfirm={handleConfirm}
             onReset={() => {
@@ -188,6 +201,8 @@ export default function PrecisionWorkbench() {
     handleParamChange,
     handleConfirm,
     reset,
+    previewStatus,
+    retryPreview,
   ]);
 
   // === 右面板内容（按管道阶段自动切换）===
@@ -275,7 +290,14 @@ export default function PrecisionWorkbench() {
   // 中央区域始终显示 3D 预览
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <Viewer3D modelUrl={viewerModelUrl} darkMode={isDark} />
+      <Viewer3D
+        modelUrl={viewerModelUrl}
+        darkMode={isDark}
+        previewLoading={previewStatus.loading}
+        previewError={previewStatus.error}
+        previewTimedOut={previewStatus.timedOut}
+        onRetryPreview={retryPreview}
+      />
     </div>
   );
 }

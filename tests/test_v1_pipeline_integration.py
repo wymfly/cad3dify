@@ -115,13 +115,14 @@ class TestEventQueue:
 
 class TestPreviewEndpoint:
     def test_preview_endpoint_exists(self, client: TestClient) -> None:
-        """V1 preview 端点应该存在。"""
+        """V1 preview 端点应该存在（不存在的模板返回 404）。"""
         resp = client.post(
             "/api/v1/preview/parametric",
             json={"template_name": "nonexistent", "params": {}},
         )
-        # 应该返回 500（模板不存在）而不是 404（路由不存在）
-        assert resp.status_code == 500
+        # 端点存在但模板不存在 → 404（非路由级 404）
+        assert resp.status_code == 404
+        assert "not found" in resp.text.lower()
 
 
 # ===================================================================
@@ -240,7 +241,7 @@ class TestJobLifecycle:
 
         resp = client.post("/api/v1/jobs/orig/regenerate")
         assert resp.status_code == 200
-        new_id = resp.json()["new_job_id"]
+        new_id = resp.json()["job_id"]
 
         new_job = await get_job(new_id)
         assert new_job is not None

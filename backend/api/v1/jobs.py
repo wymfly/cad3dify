@@ -89,7 +89,8 @@ class ConfirmRequest(BaseModel):
 class RegenerateResponse(BaseModel):
     """重新生成响应。"""
 
-    new_job_id: str
+    job_id: str
+    cloned_from: str
     status: str
 
 
@@ -106,6 +107,7 @@ def _job_to_detail(job: Job) -> JobDetailResponse:
         input_type=job.input_type,
         input_text=job.input_text,
         result=job.result,
+        printability=job.printability,
         error=job.error,
         created_at=job.created_at,
     )
@@ -133,6 +135,16 @@ async def create_drawing_job(
     pipeline_config: str = Form("{}"),
 ) -> CreateJobResponse:
     """创建图纸模式 Job（multipart 上传）。"""
+    # 文件大小限制：20MB
+    max_size = 20 * 1024 * 1024
+    content = await image.read()
+    if len(content) > max_size:
+        raise APIError(
+            status_code=422,
+            code=ErrorCode.VALIDATION_FAILED,
+            message=f"文件过大：{len(content)} 字节，上限 {max_size} 字节",
+        )
+
     job_id = str(uuid.uuid4())
     job = await create_job(job_id, input_type="drawing")
 
@@ -140,7 +152,6 @@ async def create_drawing_job(
     job_dir = ensure_job_dir(job_id)
     ext = Path(image.filename or "input.png").suffix or ".png"
     image_path = str(job_dir / f"input{ext}")
-    content = await image.read()
     await asyncio.to_thread(Path(image_path).write_bytes, content)
     await update_job(job_id, image_path=image_path)
 
@@ -289,7 +300,7 @@ async def regenerate_job(job_id: str) -> RegenerateResponse:
     new_job_id = str(uuid.uuid4())
     await create_job(new_job_id, input_type=job.input_type, input_text=job.input_text)
 
-    return RegenerateResponse(new_job_id=new_job_id, status="created")
+    return RegenerateResponse(job_id=new_job_id, cloned_from=job_id, status="created")
 
 
 # ---------------------------------------------------------------------------

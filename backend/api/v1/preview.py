@@ -51,9 +51,14 @@ async def preview_parametric(body: PreviewRequest) -> PreviewResponse:
     try:
         result = await _legacy_preview(legacy_body)
         return PreviewResponse(glb_url=result.glb_url, cached=result.cached)
+    except APIError:
+        raise  # 已结构化的错误直接透传
     except Exception as exc:
+        from fastapi import HTTPException
+        if isinstance(exc, HTTPException):
+            raise  # 透传 HTTPException 的原始状态码
         raise APIError(
             status_code=500,
             code=ErrorCode.INTERNAL_ERROR,
-            message=f"预览生成失败: {exc}",
+            message="预览生成失败",
         ) from exc

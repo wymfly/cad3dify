@@ -187,9 +187,9 @@ export default function JobDetailPage() {
           </Card>
 
           {/* Printability Report */}
-          {job.printability_result && (
+          {job.printability && (
             <div style={{ marginBottom: 16 }}>
-              <PrintReport results={job.printability_result} />
+              <PrintReport results={job.printability} />
             </div>
           )}
 

@@ -48,6 +48,7 @@ class Job(BaseModel):
     drawing_spec_confirmed: Optional[dict[str, Any]] = None
     image_path: Optional[str] = None
     result: Optional[dict[str, Any]] = None
+    printability: Optional[dict[str, Any]] = None
     error: Optional[str] = None
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()

@@ -51,7 +51,16 @@ export default function PipelineProgress({
   startTime,
   error,
 }: PipelineProgressProps) {
-  const currentStep = PHASE_TO_STEP[phase];
+  // 记住 failed 之前的最后活跃步骤，使错误图标正确渲染
+  const [lastActiveStep, setLastActiveStep] = useState(0);
+  const rawStep = PHASE_TO_STEP[phase];
+  const currentStep = rawStep >= 0 ? rawStep : lastActiveStep;
+
+  useEffect(() => {
+    if (rawStep >= 0 && phase !== 'failed') {
+      setLastActiveStep(rawStep);
+    }
+  }, [rawStep, phase]);
 
   const [elapsed, setElapsed] = useState<string | null>(null);
   useEffect(() => {

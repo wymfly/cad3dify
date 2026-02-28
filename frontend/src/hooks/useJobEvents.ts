@@ -37,12 +37,11 @@ export function useJobEvents({
   onComplete,
   onError,
 }: UseJobEventsOptions): UseJobEventsResult {
-  // 使用 jobId 作为 key 来重置事件列表
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const sourceRef = useRef<EventSource | null>(null);
 
-  // 用 ref 保持回调最新引用（在 effect 中更新，避免 render 期间写 ref）
+  // 用 ref 保持回调最新引用
   const onEventRef = useRef(onEvent);
   const onCompleteRef = useRef(onComplete);
   const onErrorRef = useRef(onError);
@@ -65,7 +64,6 @@ export function useJobEvents({
   }, [closeSource]);
 
   useEffect(() => {
-    // jobId 变化时重置状态
     setEvents([]);
     setConnected(false);
 
@@ -74,6 +72,9 @@ export function useJobEvents({
     const url = `/api/v1/jobs/${jobId}/events`;
     const source = new EventSource(url);
     sourceRef.current = source;
+
+    // 用局部 ref 跟踪最后事件状态（避免在 state updater 中产生副作用）
+    let lastStatus = '';
 
     const safeParse = (raw: string): JobEvent | null => {
       try {
@@ -84,6 +85,7 @@ export function useJobEvents({
     };
 
     const handleEvent = (event: JobEvent) => {
+      lastStatus = event.status;
       setEvents((prev) => [...prev, event]);
       onEventRef.current?.(event);
 
@@ -100,7 +102,6 @@ export function useJobEvents({
       }
     };
 
-    // 监听命名事件
     source.addEventListener('progress', (e: MessageEvent) => {
       const data = safeParse(e.data);
       if (data) handleEvent(data);
@@ -116,7 +117,6 @@ export function useJobEvents({
       if (data) handleEvent({ ...data, status: 'failed' });
     });
 
-    // 回退：处理无 event 字段的通用消息
     source.onmessage = (e: MessageEvent) => {
       const data = safeParse(e.data);
       if (!data) return;
@@ -129,15 +129,11 @@ export function useJobEvents({
 
     source.onerror = () => {
       // EventSource 会自动重连；如果已到终态则断开
-      setEvents((prev) => {
-        const last = prev[prev.length - 1];
-        if (last && TERMINAL_STATUSES.has(last.status)) {
-          source.close();
-          sourceRef.current = null;
-          setConnected(false);
-        }
-        return prev;
-      });
+      if (TERMINAL_STATUSES.has(lastStatus)) {
+        source.close();
+        sourceRef.current = null;
+        setConnected(false);
+      }
     };
 
     return () => {

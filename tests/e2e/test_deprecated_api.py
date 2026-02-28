@@ -49,8 +49,8 @@ class TestV1CanonicalEndpoints:
             "/api/v1/preview/parametric",
             json={"template_name": "test", "params": {}},
         )
-        # 端点存在（可能因模板不存在返回 500）
-        assert resp.status_code in (200, 500)
+        # 端点存在（模板不存在时返回 404，非路由级 404）
+        assert resp.status_code in (200, 404, 500)
 
 
 class TestNonexistentV1Paths:

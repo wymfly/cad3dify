@@ -94,13 +94,50 @@ async def subscribe_job_events(job_id: str) -> EventSourceResponse:
             })
             return
 
-        # 持续消费队列事件
+        # 持续消费队列事件，带超时保护
         terminal_events = {"completed", "failed"}
+        idle_seconds = 0
+        max_idle_seconds = 300  # 5 分钟无事件则断开
+        heartbeat_interval = 30  # 每 30 秒发心跳
+
         while True:
             try:
                 event = q.get_nowait()
+                idle_seconds = 0
             except queue_mod.Empty:
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.5)
+                idle_seconds += 0.5
+
+                # 心跳
+                if idle_seconds > 0 and int(idle_seconds) % heartbeat_interval == 0 and idle_seconds == int(idle_seconds):
+                    yield _sse("heartbeat", {"job_id": job_id, "message": "keepalive"})
+
+                # 超时检查：重新查询 DB 判断是否已终结
+                if idle_seconds >= max_idle_seconds:
+                    refreshed = await get_job(job_id)
+                    if refreshed and refreshed.status.value in terminal_events:
+                        yield _sse(refreshed.status.value, {
+                            "job_id": job_id,
+                            "status": refreshed.status.value,
+                            "message": "Job 已结束（超时检测）",
+                        })
+                    cleanup_queue(job_id)
+                    return
+
+                # 中间检查：每 10 秒查一次 DB 看是否已终结
+                if idle_seconds > 0 and idle_seconds % 10 == 0:
+                    refreshed = await get_job(job_id)
+                    if refreshed and refreshed.status.value in terminal_events:
+                        yield _sse(refreshed.status.value, {
+                            "job_id": job_id,
+                            "status": refreshed.status.value,
+                            "message": "Job 已结束",
+                            "result": refreshed.result,
+                            "error": refreshed.error,
+                        })
+                        cleanup_queue(job_id)
+                        return
+
                 continue
 
             event_type = event.get("event", "progress")

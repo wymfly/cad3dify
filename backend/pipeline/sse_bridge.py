@@ -36,7 +36,8 @@ class PipelineBridge:
         # 或
         bridge.fail("生成失败: ...")
 
-    SSE endpoint 从 ``bridge.queue`` 中消费事件。
+    事件会同时放入本地 ``bridge.queue``（旧版兼容）和全局事件注册表
+    （供 ``/api/v1/jobs/{id}/events`` 端点消费）。
     """
 
     def __init__(self, job_id: str) -> None:
@@ -124,6 +125,13 @@ class PipelineBridge:
 
     def _put(self, event: dict[str, Any]) -> None:
         self.queue.put_nowait(event)
+        # 同步到全局事件注册表（供 v1 SSE 端点消费）
+        try:
+            from backend.api.v1.events import get_event_queue
+            global_q = get_event_queue(self.job_id)
+            global_q.put_nowait(event)
+        except ImportError:
+            pass  # v1 模块未加载时静默忽略
 
     @staticmethod
     def _stage_message(stage: str, data: dict[str, Any]) -> str:

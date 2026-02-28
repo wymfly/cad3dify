@@ -10,6 +10,10 @@ interface Viewer3DProps {
   modelUrl: string | null;
   wireframe?: boolean;
   darkMode?: boolean;
+  previewLoading?: boolean;
+  previewError?: string | null;
+  previewTimedOut?: boolean;
+  onRetryPreview?: () => void;
   onLoaded?: () => void;
 }
 
@@ -66,7 +70,16 @@ function CameraController({ targetPosition, onAnimationDone }: CameraControllerP
   return null;
 }
 
-export default function Viewer3D({ modelUrl, wireframe: externalWireframe, darkMode = false, onLoaded }: Viewer3DProps) {
+export default function Viewer3D({
+  modelUrl,
+  wireframe: externalWireframe,
+  darkMode = false,
+  previewLoading = false,
+  previewError,
+  previewTimedOut = false,
+  onRetryPreview,
+  onLoaded,
+}: Viewer3DProps) {
   const [internalWireframe, setInternalWireframe] = useState(false);
   const [cameraTarget, setCameraTarget] = useState<[number, number, number] | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -130,7 +143,7 @@ export default function Viewer3D({ modelUrl, wireframe: externalWireframe, darkM
             <meshStandardMaterial color={placeholderColor} wireframe={wireframe} />
           </mesh>
         )}
-        <gridHelper args={[10, 10, gridColors[0], gridColors[1]]} />
+        <gridHelper key={darkMode ? 'dark' : 'light'} args={[10, 10, gridColors[0], gridColors[1]]} />
       </Canvas>
 
       {!modelUrl && (
@@ -157,6 +170,71 @@ export default function Viewer3D({ modelUrl, wireframe: externalWireframe, darkM
         onWireframeToggle={() => setInternalWireframe((v) => !v)}
         onViewChange={handleViewChange}
       />
+
+      {/* Preview loading overlay */}
+      {previewLoading && modelUrl && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 12,
+            right: 12,
+            background: darkMode ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)',
+            borderRadius: 6,
+            padding: '6px 12px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 12,
+            color: darkMode ? '#aaa' : '#666',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          }}
+        >
+          <Spin size="small" />
+          预览更新中...
+        </div>
+      )}
+
+      {/* Timeout / error overlay */}
+      {(previewTimedOut || previewError) && !previewLoading && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 12,
+            right: 12,
+            background: darkMode ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
+            borderRadius: 6,
+            padding: '8px 12px',
+            fontSize: 12,
+            color: previewTimedOut ? (darkMode ? '#faad14' : '#d48806') : '#ff4d4f',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            maxWidth: 200,
+          }}
+        >
+          <div>{previewTimedOut ? '预览超时' : '预览不可用'}</div>
+          {previewError && (
+            <div style={{ fontSize: 11, marginTop: 2, opacity: 0.8 }}>
+              {previewError}
+            </div>
+          )}
+          {onRetryPreview && (
+            <button
+              onClick={onRetryPreview}
+              style={{
+                marginTop: 4,
+                padding: '2px 8px',
+                fontSize: 11,
+                border: '1px solid currentColor',
+                borderRadius: 4,
+                background: 'transparent',
+                color: 'inherit',
+                cursor: 'pointer',
+              }}
+            >
+              重试
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

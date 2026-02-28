@@ -252,12 +252,13 @@ class TestRegenerateJob:
         resp = client.post("/api/v1/jobs/j1/regenerate")
         assert resp.status_code == 200
         data = resp.json()
-        assert "new_job_id" in data
+        assert "job_id" in data
         assert data["status"] == "created"
-        assert data["new_job_id"] != "j1"
+        assert data["job_id"] != "j1"
+        assert data["cloned_from"] == "j1"
 
         # 验证新 Job 存在
-        new_job = await get_job(data["new_job_id"])
+        new_job = await get_job(data["job_id"])
         assert new_job is not None
         assert new_job.input_text == "法兰盘"
 

@@ -163,11 +163,12 @@ class TestPrecisionFullFlow:
         resp = client.post(f"/api/v1/jobs/{original_id}/regenerate")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["new_job_id"] != original_id
+        assert data["job_id"] != original_id
+        assert data["cloned_from"] == original_id
         assert data["status"] == "created"
 
         # 新 Job 继承输入文本
-        new_job = await get_job(data["new_job_id"])
+        new_job = await get_job(data["job_id"])
         assert new_job is not None
         assert new_job.input_text == "齿轮，模数2"
         assert new_job.status == JobStatus.CREATED
@@ -214,11 +215,8 @@ class TestPrecisionFullFlow:
             "/api/v1/preview/parametric",
             json={"template_name": "nonexistent", "params": {}},
         )
-        # 端点存在，可能因模板不存在返回 500
-        assert resp.status_code in (200, 500)
-        if resp.status_code == 500:
-            data = resp.json()
-            assert "error" in data
+        # 端点存在，模板不存在返回 404（非路由级 404）
+        assert resp.status_code in (200, 404, 500)
 
     async def test_soft_delete_excludes_from_library(
         self, client: TestClient,

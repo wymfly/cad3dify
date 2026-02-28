@@ -125,9 +125,10 @@ class TestOrganicFullFlow:
         resp = client.post(f"/api/v1/jobs/{original_id}/regenerate")
         assert resp.status_code == 200
         new_data = resp.json()
-        assert new_data["new_job_id"] != original_id
+        assert new_data["job_id"] != original_id
+        assert new_data["cloned_from"] == original_id
 
-        new_job = await get_job(new_data["new_job_id"])
+        new_job = await get_job(new_data["job_id"])
         assert new_job is not None
         assert new_job.input_text == "猫咪雕像"
 
