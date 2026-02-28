@@ -2,7 +2,7 @@
 
 ### Requirement: LCEL retry chain wraps all LLM invocations
 
-The system SHALL wrap every LLM call in a LCEL chain with `.with_retry(stop_after_attempt=3, wait_exponential_jitter=True)` and `.with_fallbacks([fallback_chain])` to handle transient errors automatically.
+The system SHALL wrap every LLM call in a LCEL chain with `.with_retry(stop_after_attempt=3, wait_exponential_jitter=True)` to handle transient errors. Text intent chains SHALL additionally use `.with_fallbacks([fallback_chain])` pointing to a secondary model. Vision chains (Qwen-VL-Max) SHALL use retry only (no fallback), since no equivalent cheaper VL model is available.
 
 #### Scenario: Transient rate-limit retried transparently
 - **WHEN** an LLM API call returns a rate-limit error on the first attempt
@@ -34,7 +34,7 @@ The system SHALL wrap each LLM node's LCEL chain invocation in `asyncio.wait_for
 - **WHEN** `analyze_intent_node` has not completed after 60 seconds
 - **THEN** `asyncio.TimeoutError` is raised inside the node
 - **AND** the node catches it and returns `{"status": "failed", "error": "意图解析超时（60s）"}`
-- **AND** the stream emits `job.failed` event within 100ms
+- **AND** the stream emits `job.failed` event promptly (not hung)
 
 #### Scenario: Vision analysis node has independent timeout
 - **WHEN** `analyze_vision_node` is processing a drawing image via Qwen-VL-Max

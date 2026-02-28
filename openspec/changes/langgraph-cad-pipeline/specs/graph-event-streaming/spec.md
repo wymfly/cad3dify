@@ -2,7 +2,7 @@
 
 ### Requirement: adispatch_custom_event replaces global event queues
 
-The system SHALL eliminate the global `_event_queues: dict[str, Queue]` dictionary and replace it with `langgraph.utils.events.adispatch_custom_event(name, data)` called from inside Graph nodes.
+The system SHALL eliminate the global `_event_queues: dict[str, Queue]` dictionary and replace it with `langchain_core.callbacks.adispatch_custom_event(name, data)` called from inside Graph nodes.
 
 #### Scenario: Node dispatches progress event
 - **WHEN** `analyze_vision_node` completes DrawingSpec extraction
@@ -11,14 +11,14 @@ The system SHALL eliminate the global `_event_queues: dict[str, Queue]` dictiona
 
 #### Scenario: Event lifecycle tied to Graph Run
 - **WHEN** a Graph run ends (either completed or failed)
-- **THEN** all custom events from that run are automatically garbage-collected
-- **AND** `cleanup_queue()` is NOT called (it does not exist)
-- **AND** no memory accumulates from terminated runs
+- **THEN** no manual cleanup function is called (no `cleanup_queue()` exists)
+- **AND** the SSE generator's `async for` loop terminates naturally
+- **AND** no per-job Queue objects persist in module-level dictionaries after run completion
 
-#### Scenario: _event_queues no longer exists
+#### Scenario: _event_queues no longer used by jobs.py
 - **WHEN** the codebase is audited after migration
-- **THEN** `_event_queues` MUST NOT appear in any source file
-- **AND** `emit_event()`, `cleanup_queue()`, and `PipelineBridge` MUST NOT appear in any source file
+- **THEN** `backend/api/v1/jobs.py` MUST NOT reference `_event_queues`, `emit_event()`, `cleanup_queue()`, or `PipelineBridge`
+- **AND** `backend/api/generate.py` MAY still reference them until organic migration (separate change)
 
 ### Requirement: API layer receives events via astream_events pull model
 

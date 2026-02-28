@@ -2,13 +2,13 @@
 
 ### Requirement: Drawing path HITL pause after DrawingSpec extraction
 
-The system SHALL pause the drawing generation pipeline after Stage 1 (DrawingAnalyzer produces DrawingSpec) using LangGraph `interrupt()` called inside `confirm_with_user_node`, and SHALL resume via `Command(resume=...)` when the user confirms. The pipeline runs within a single continuous Graph execution (not split into two HTTP requests calling different endpoints).
+The system SHALL pause the drawing generation pipeline after Stage 1 (DrawingAnalyzer produces DrawingSpec) using LangGraph `interrupt_before=["confirm_with_user_node"]` to pause before the confirm node, and SHALL resume via `Command(resume=...)` when the user confirms. The `job.awaiting_confirmation` event is dispatched by the preceding analysis node (not the confirm node itself, since `interrupt_before` pauses execution before the node runs).
 
 #### Scenario: Normal drawing upload flow
 - **WHEN** a user uploads an engineering drawing via POST /api/v1/jobs/upload
 - **THEN** the Graph executes `analyze_vision_node` to extract DrawingSpec
-- **AND** sends a `job.spec_ready` SSE event containing the full DrawingSpec JSON
-- **AND** the Graph calls `interrupt()` inside `confirm_with_user_node`, suspending execution
+- **AND** `analyze_vision_node` dispatches `job.spec_ready` and `job.awaiting_confirmation` SSE events before completing
+- **AND** the Graph pauses via `interrupt_before` at `confirm_with_user_node` boundary
 - **AND** the checkpoint is persisted to `AsyncSqliteSaver` at the interrupt point
 
 #### Scenario: Pipeline resumes after confirmation via Command

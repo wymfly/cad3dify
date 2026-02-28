@@ -18,7 +18,7 @@
 - 单一 LangGraph `StateGraph` 统一编排三种 input_type（text / drawing / organic）的 Job 生命周期
 - 框架级 LLM 超时/重试：LCEL `.with_retry(3)` + `asyncio.wait_for(60s)` + fallback chain
 - 消除 `_event_queues`：改用 `graph.astream_events()` 拉式事件流，生命周期与 Graph Run 绑定
-- 原生 HITL：`interrupt_before=["confirm_with_user_node"]` + `Command(resume=...)`
+- 原生 HITL：`interrupt_before=["confirm_with_user_node"]` + `Command(resume=...)`；awaiting 事件由前置分析节点在结束前 dispatch（因 `interrupt_before` 会在节点执行前暂停，节点内的 dispatch 不会在首次流中触发）
 - 断点续跑：`AsyncSqliteSaver` checkpoint，节点幂等设计，进程重启可从失败节点恢复
 - 规范化 SSE 事件命名（`job.created`、`job.generating`、`job.completed` 等）
 - 废弃 V2/V3 历史命名，改用能力描述性函数名
@@ -79,7 +79,7 @@ result = await asyncio.wait_for(chain.ainvoke(input), timeout=60.0)
 
 ### D4：事件传递（选 adispatch_custom_event）
 
-**决定**：节点内用 `langgraph.utils.events.adispatch_custom_event(name, data)` 发送进度事件，API 层通过 `graph.astream_events(..., version="v2")` 过滤 `on_custom_event` 类型。
+**决定**：节点内用 `langchain_core.callbacks.adispatch_custom_event(name, data)` 发送进度事件，API 层通过 `graph.astream_events(..., version="v2")` 过滤 `on_custom_event` 类型。
 
 **理由**：
 - 框架原生机制，生命周期由 Graph Run 管理，Graph 结束时自动清理，无需手动 `cleanup_queue()`
@@ -122,7 +122,7 @@ async def generate_step_drawing_node(state: CadJobState) -> dict:
 
 | 风险 | 缓解措施 |
 |------|---------|
-| LangGraph 0.3.x API 变更（尚在快速迭代） | 锁定 `>=0.3.0,<1.0`，集成测试覆盖 Graph 核心路径 |
+| LangGraph API 变更（当前 1.0.x 已发布） | 锁定 `>=0.3.0`（兼容 1.0.x），集成测试覆盖 Graph 核心路径；实施前运行 API 兼容性烟雾测试 |
 | AsyncSqliteSaver 与 aiohttp 的并发写冲突 | SQLite WAL 模式（LangGraph 默认启用），单进程部署无并发写问题 |
 | 断点续跑时 V2 管道部分输出（非原子） | `generate_step_drawing_node` 先写临时文件再 rename，确保原子性 |
 | 测试中 LangGraph + FastAPI TestClient 的事件流兼容性 | 使用 `graph.invoke()` 模式在单元测试中替代 `astream_events()` |
@@ -139,12 +139,15 @@ async def generate_step_drawing_node(state: CadJobState) -> dict:
 5. **删除废弃代码**：`_event_queues`、`PipelineBridge`、旧 SSE generator（所有测试通过后）
 6. **更新测试**：适配新事件名称，新增 Graph 节点单元测试
 
+**字段映射**：`CadJobState` 字段名与 ORM `Job` 模型需显式映射——`confirmed_spec` ↔ `drawing_spec_confirmed`，`printability` ↔ `printability_result`，`step_path` ↔ `output_step_path`。`finalize_node` 负责将 State 字段写入 ORM 时做转换。
+
 **回滚**：`backend/graph/` 是新增模块，旧代码在独立 git 分支保留；若 Graph 路径失败，API 层可快速切回旧 generator。
 
 ---
 
 ## Open Questions
 
-- **organic 节点**：目前 Graph 中 organic 路径做 stub（直接进 `confirm_with_user_node`），实际生成仍调旧端点。何时将 organic 生成逻辑迁入 Graph？（建议单独 change 处理）
+- **organic 节点**：目前 Graph 中 organic 路径做 stub（直接进 `confirm_with_user_node`），确认后 `finalize_node` 将 Job 标记为外部处理，实际生成仍由 `/api/generate/organic` 旧端点完成。organic 节点不路由到 drawing/text 生成路径。何时将 organic 生成逻辑迁入 Graph？（建议单独 change 处理）
+- **`backend/api/generate.py` 遗留依赖**：`generate.py` 仍使用 `PipelineBridge` 和 `_event_queues`；因 organic 仍依赖此端点，本次变更不删除 `sse_bridge.py` 和 `events.py` 中被 `generate.py` 引用的部分。仅删除被 `jobs.py` 独占的废弃代码
 - **并发 Job**：同一用户多个并发 Job 是否需要 Graph 层面的资源限制？（当前单进程 SQLite 可接受）
 - **事件过渡期**：是否需要同时发新旧格式事件以支持前端灰度？（建议直接切换，前端同步改）

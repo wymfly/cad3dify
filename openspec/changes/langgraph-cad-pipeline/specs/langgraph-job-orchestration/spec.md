@@ -62,7 +62,7 @@ The system SHALL propagate node failures as structured state updates, yielding a
 #### Scenario: LLM timeout causes failed state
 - **WHEN** `asyncio.wait_for` raises `TimeoutError` inside `analyze_intent_node`
 - **THEN** the node returns `{"status": "failed", "error": "意图解析超时（60s）"}`
-- **AND** the stream emits `job.failed` within 100ms of the timeout
+- **AND** the stream emits `job.failed` promptly after the timeout
 
 ### Requirement: API layer delegates to Graph astream_events
 
