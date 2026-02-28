@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button, Typography, Empty } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useOutletContext } from 'react-router-dom';
@@ -14,7 +14,7 @@ import PipelineLog from '../../components/PipelineLog/index.tsx';
 import DownloadPanel from '../../components/DownloadPanel/index.tsx';
 import PrintReport from '../../components/PrintReport/index.tsx';
 import Viewer3D from '../../components/Viewer3D/index.tsx';
-import { useJobEvents, type JobEvent } from '../../hooks/useJobEvents.ts';
+import { useJobEvents } from '../../hooks/useJobEvents.ts';
 
 const { Text, Title } = Typography;
 
