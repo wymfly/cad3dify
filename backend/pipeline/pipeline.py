@@ -130,11 +130,11 @@ def _score_geometry(
 
 
 # ======================================================================
-# HITL Pipeline Split (D8): analyze_drawing + generate_from_drawing_spec
+# HITL Pipeline Split (D8): analyze_vision_spec + generate_step_from_spec
 # ======================================================================
 
 
-def analyze_drawing(
+def analyze_vision_spec(
     image_filepath: str,
 ) -> tuple[DrawingSpec | None, str | None]:
     """Stage 1 only: VL drawing analysis → DrawingSpec for HITL review.
@@ -164,7 +164,7 @@ def analyze_drawing(
     return spec, reasoning
 
 
-def generate_from_drawing_spec(
+def generate_step_from_spec(
     image_filepath: str,
     drawing_spec: DrawingSpec,
     output_filepath: str,
@@ -546,11 +546,11 @@ def generate_from_drawing_spec(
 
 
 # ======================================================================
-# Backward-compatible V2 pipeline (calls analyze + generate)
+# V2 pipeline entry point (calls analyze_vision_spec + generate_step_from_spec)
 # ======================================================================
 
 
-def generate_step_v2(
+def analyze_and_generate_step(
     image_filepath: str,
     output_filepath: str,
     num_refinements: int | None = None,
@@ -560,7 +560,7 @@ def generate_step_v2(
 ):
     """V2 pipeline: analyze + generate (backward compatible).
 
-    Combines analyze_drawing() and generate_from_drawing_spec() for
+    Combines analyze_vision_spec() and generate_step_from_spec() for
     non-HITL usage. For HITL flow, call them separately.
 
     Args:
@@ -571,7 +571,7 @@ def generate_step_v2(
         on_progress: 进度回调 on_progress(stage: str, data: dict)
         config: 管道配置，None 则使用 balanced 预设
     """
-    spec, reasoning = analyze_drawing(image_filepath)
+    spec, reasoning = analyze_vision_spec(image_filepath)
 
     if spec is None:
         logger.error("[V2] Drawing analysis failed, falling back to v1 pipeline")
@@ -586,7 +586,7 @@ def generate_step_v2(
         except TypeError:
             on_spec_ready(spec)  # backward compat: old callers accept only (spec,)
 
-    generate_from_drawing_spec(
+    generate_step_from_spec(
         image_filepath=image_filepath,
         drawing_spec=spec,
         output_filepath=output_filepath,
@@ -594,3 +594,9 @@ def generate_step_v2(
         on_progress=on_progress,
         config=config,
     )
+
+
+# ── Backward-compatible aliases ──
+analyze_drawing = analyze_vision_spec
+generate_from_drawing_spec = generate_step_from_spec
+generate_step_v2 = analyze_and_generate_step
