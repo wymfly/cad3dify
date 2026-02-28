@@ -85,6 +85,18 @@ Some analysis here
         assert result["reasoning"] is not None
         assert "Some analysis" in result["reasoning"]
 
+    def test_parse_adjacent_code_blocks_shared_delimiter(self):
+        """VL model output where reasoning and json blocks share a ``` delimiter.
+
+        Real VL output format: ```reasoning\\n...\\n```json\\n...\\n```
+        The middle ``` is both the end of reasoning and the start of json.
+        """
+        text = '```reasoning\n1. 视图识别：左侧为俯视图\n2. 尺寸提取：外径 φ100\n```json\n{"part_type": "rotational_stepped", "description": "阶梯轴", "views": ["top", "front_section"], "overall_dimensions": {"max_diameter": 100, "total_height": 30}, "base_body": {"method": "revolve", "profile": [{"diameter": 100, "height": 10, "label": "outer"}], "bore": {"diameter": 10, "through": true}}, "features": [], "notes": []}\n```'
+        result = _parse_drawing_spec({"text": text})
+        assert result["result"] is not None, "Should parse JSON even with shared delimiter"
+        assert result["result"].part_type.value == "rotational_stepped"
+        assert result["result"].overall_dimensions["max_diameter"] == 100
+
     def test_invalid_part_type_defaults_to_general(self):
         """Unknown part_type is replaced with 'general'."""
         text = '{"part_type": "unknown_type", "description": "x", "views": [], "overall_dimensions": {}, "base_body": {"method": "extrude"}, "features": [], "notes": []}'

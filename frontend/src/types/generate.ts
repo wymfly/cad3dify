@@ -80,6 +80,7 @@ export interface DrawingSpecFeature {
 
 export interface DrawingSpec {
   part_type: string;
+  description?: string;
   overall_dimensions: Record<string, number>;
   base_body: DrawingSpecBaseBody;
   features: DrawingSpecFeature[];

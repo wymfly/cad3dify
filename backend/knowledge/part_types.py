@@ -101,7 +101,7 @@ class BaseBodySpec(BaseModel):
 class DrawingSpec(BaseModel):
     """图纸分析结构化结果 — VL 模型输出格式"""
     part_type: PartType
-    description: str
+    description: str = ""
     views: list[str] = []
     overall_dimensions: dict[str, float] = {}
     base_body: BaseBodySpec

@@ -98,20 +98,28 @@ def _parse_drawing_spec(input: dict) -> dict:
     if reasoning:
         logger.info(f"CoT reasoning ({len(reasoning)} chars):\n{reasoning}")
 
-    # 提取 JSON — 优先匹配 ```json 块，跳过 reasoning 块
+    # 提取 JSON — 优先直接匹配 ```json 块
     json_str = None
-    for m in re.finditer(r"```(\w*)\s*\n(.*?)\n```", text, re.DOTALL):
-        lang = m.group(1).lower()
-        if lang in ("json", ""):
-            # 尝试解析，确认是 JSON 而非 reasoning
-            candidate = m.group(2).strip()
-            if candidate.startswith("{"):
-                json_str = candidate
-                break
+    json_match = re.search(r"```json\s*\n(.*?)\n```", text, re.DOTALL)
+    if json_match:
+        json_str = json_match.group(1).strip()
+    else:
+        # fallback: 匹配任意代码块中以 { 开头的内容
+        for m in re.finditer(r"```(\w*)\s*\n(.*?)\n```", text, re.DOTALL):
+            lang = m.group(1).lower()
+            if lang in ("json", ""):
+                candidate = m.group(2).strip()
+                if candidate.startswith("{"):
+                    json_str = candidate
+                    break
 
     if json_str is None:
-        # 回退：尝试直接解析整个文本
-        json_str = text.strip()
+        # 最终回退：尝试从文本中提取裸 JSON 对象
+        brace_match = re.search(r"\{.*\}", text, re.DOTALL)
+        if brace_match:
+            json_str = brace_match.group(0).strip()
+        else:
+            json_str = text.strip()
 
     try:
         data = json.loads(json_str)

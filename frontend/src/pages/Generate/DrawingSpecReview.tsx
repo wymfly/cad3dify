@@ -72,6 +72,7 @@ export default function DrawingSpecReview({
     const dims = form.getFieldsValue();
     const confirmedSpec: DrawingSpec = {
       part_type: partType,
+      description: drawingSpec.description ?? '',
       overall_dimensions: dims,
       base_body: {
         ...drawingSpec.base_body,
