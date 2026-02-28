@@ -137,8 +137,23 @@ def _job_to_detail(job: Job) -> JobDetailResponse:
 async def create_job_endpoint(body: CreateJobRequest) -> EventSourceResponse:
     """创建新 Job，按 input_type 分发管道，返回 SSE 事件流。
 
-    text 模式流程：job_created → intent_parsed → awaiting_confirmation
+    text  模式：job_created → intent_parsed → awaiting_confirmation
+    organic 模式：job_created → awaiting_confirmation（实际生成由 /api/generate/organic 负责）
+    drawing 模式：422（图纸必须通过 /api/v1/jobs/upload 上传，不能通过此接口）
     """
+    if body.input_type == "drawing":
+        raise APIError(
+            status_code=422,
+            code=ErrorCode.VALIDATION_FAILED,
+            message="图纸模式请使用 POST /api/v1/jobs/upload（需上传图片文件）",
+        )
+    if body.input_type not in ("text", "organic"):
+        raise APIError(
+            status_code=422,
+            code=ErrorCode.VALIDATION_FAILED,
+            message=f"不支持的 input_type: {body.input_type!r}，可选值: text | organic | drawing",
+        )
+
     from loguru import logger
 
     job_id = str(uuid.uuid4())
@@ -147,6 +162,16 @@ async def create_job_endpoint(body: CreateJobRequest) -> EventSourceResponse:
 
     async def event_stream() -> AsyncGenerator[dict[str, str], None]:
         yield _sse("job_created", {"job_id": job.job_id, "status": job.status.value})
+
+        if body.input_type == "organic":
+            # organic 模式：直接进入 awaiting_confirmation，实际生成由旧版接口处理
+            await update_job(job_id, status=JobStatus.AWAITING_CONFIRMATION)
+            yield _sse("awaiting_confirmation", {
+                "job_id": job_id,
+                "status": JobStatus.AWAITING_CONFIRMATION.value,
+                "message": "请调用 /api/generate/organic 发起生成",
+            })
+            return
 
         # text 模式：解析意图 → 参数确认
         matched_template: Any = None
@@ -394,18 +419,32 @@ async def confirm_job(job_id: str, body: ConfirmRequest) -> EventSourceResponse:
         )
 
     # 收集用户修正（仅图纸模式，有原始 spec 时）
+    # 同时写入 JSON 文件（数据飞轮）和 DB（/corrections 端点读取来源）
     if body.confirmed_spec and job.drawing_spec:
         try:
             from backend.core.correction_tracker import (
                 compute_corrections,
                 persist_corrections,
             )
+            from backend.db.database import async_session
+            from backend.db.repository import create_correction
 
             corrections = compute_corrections(job.drawing_spec, body.confirmed_spec, job_id)
             if corrections:
                 await asyncio.to_thread(persist_corrections, job_id, corrections)
-        except Exception:
-            pass  # 修正收集失败不阻塞主流程
+                async with async_session() as _sess:
+                    for c in corrections:
+                        await create_correction(
+                            _sess,
+                            job_id=job_id,
+                            field_path=c["field_path"],
+                            original_value=c["original_value"],
+                            corrected_value=c["corrected_value"],
+                        )
+                    await _sess.commit()
+        except Exception as _corr_exc:
+            from loguru import logger as _log
+            _log.warning("Corrections persistence failed for job {}: {}", job_id, _corr_exc)
 
     # 图纸模式：验证免责声明
     is_drawing_mode = job.status == JobStatus.AWAITING_DRAWING_CONFIRMATION
@@ -497,7 +536,6 @@ async def confirm_job(job_id: str, body: ConfirmRequest) -> EventSourceResponse:
                 })
 
             if not pipeline_failed and Path(step_path).exists():
-                await _finalize_job(job_id, step_path, glb_path, body.confirmed_spec or {})
                 async for evt in _finalize_sse(job_id, step_path, glb_path, body.confirmed_spec or {}):
                     yield evt
             elif not pipeline_failed:
@@ -547,44 +585,6 @@ async def confirm_job(job_id: str, body: ConfirmRequest) -> EventSourceResponse:
     return EventSourceResponse(event_stream())
 
 
-async def _finalize_job(
-    job_id: str,
-    step_path: str,
-    glb_path: str,
-    confirmed_data: dict[str, Any],
-) -> None:
-    """更新 DB 为 COMPLETED（内部辅助，不产生 SSE）。"""
-    from loguru import logger
-
-    model_url: str | None = None
-    try:
-        await asyncio.wait_for(
-            asyncio.to_thread(_convert_step_to_glb, step_path, glb_path),
-            timeout=30,
-        )
-        model_url = get_model_url(job_id, fmt="glb")
-    except Exception as exc:
-        logger.warning("STEP→GLB conversion failed for job {}: {}", job_id, exc)
-
-    printability_data = await asyncio.to_thread(_run_printability_check, step_path)
-
-    try:
-        await update_job(
-            job_id,
-            status=JobStatus.COMPLETED,
-            result={
-                "message": "生成完成",
-                "model_url": model_url,
-                "step_path": step_path,
-                "confirmed_data": confirmed_data,
-            },
-            printability_result=printability_data,
-        )
-    except Exception as exc:
-        from loguru import logger as _logger
-        _logger.error("Failed to update job {} to COMPLETED: {}", job_id, exc)
-
-
 async def _finalize_sse(
     job_id: str,
     step_path: str,
@@ -627,6 +627,16 @@ async def _finalize_sse(
         )
     except Exception as exc:
         logger.error("Failed to update job {} to COMPLETED: {}", job_id, exc)
+        try:
+            await update_job(job_id, status=JobStatus.FAILED, error=f"结果持久化失败: {exc}")
+        except Exception as _db_exc:
+            logger.error("Also failed to mark job {} as FAILED in DB: {}", job_id, _db_exc)
+        yield _sse("failed", {
+            "job_id": job_id,
+            "status": JobStatus.FAILED.value,
+            "message": f"结果持久化失败: {exc}",
+        })
+        return
 
     yield _sse("completed", {
         "job_id": job_id,
