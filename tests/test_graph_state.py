@@ -19,7 +19,8 @@ class TestCadJobState:
     def test_state_to_orm_mapping_covers_key_fields(self) -> None:
         assert STATE_TO_ORM_MAPPING["confirmed_spec"] == "drawing_spec_confirmed"
         assert STATE_TO_ORM_MAPPING["printability"] == "printability_result"
-        assert STATE_TO_ORM_MAPPING["step_path"] == "output_step_path"
+        # step_path is assembled into result JSON by finalize_node, not a direct mapping
+        assert "step_path" not in STATE_TO_ORM_MAPPING
 
     def test_state_to_orm_mapping_values_are_strings(self) -> None:
         for k, v in STATE_TO_ORM_MAPPING.items():

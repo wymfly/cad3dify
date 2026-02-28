@@ -37,5 +37,6 @@ class CadJobState(TypedDict, total=False):
 STATE_TO_ORM_MAPPING: dict[str, str] = {
     "confirmed_spec": "drawing_spec_confirmed",
     "printability": "printability_result",
-    "step_path": "output_step_path",
+    # step_path and model_url are assembled into the ORM `result` JSON column
+    # by finalize_node — no direct 1:1 mapping needed here.
 }

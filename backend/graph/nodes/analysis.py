@@ -31,7 +31,7 @@ async def _parse_intent(text: str) -> dict:
     """Async intent parsing — delegates to existing IntentParser."""
     from backend.core.intent_parser import IntentParser
     parser = IntentParser()
-    return await parser.aparse(text)
+    return await parser.parse(text)
 
 
 def _run_analyze_vision(image_path: str) -> tuple:
@@ -52,8 +52,7 @@ async def analyze_intent_node(state: CadJobState) -> dict[str, Any]:
     except Exception as exc:
         reason = map_exception_to_failure_reason(exc)
         logger.error("Intent analysis failed: %s (%s)", exc, reason)
-        # Sync DB to awaiting_confirmation so confirm endpoint accepts resume
-        await _safe_update_job(state["job_id"], status="awaiting_confirmation")
+        await _safe_update_job(state["job_id"], status="failed", error=str(exc))
         await _safe_dispatch(
             "job.failed",
             {"job_id": state["job_id"], "error": str(exc), "failure_reason": reason, "status": "failed"},
@@ -87,16 +86,24 @@ async def analyze_vision_node(state: CadJobState) -> dict[str, Any]:
     """Run VL model to extract DrawingSpec from uploaded image (with timeout)."""
     await _safe_dispatch("job.vision_analyzing", {"job_id": state["job_id"], "status": "analyzing"})
 
+    image_path = state.get("image_path")
+    if not image_path:
+        await _safe_update_job(state["job_id"], status="failed")
+        await _safe_dispatch(
+            "job.failed",
+            {"job_id": state["job_id"], "error": "No image_path provided", "failure_reason": "generation_error", "status": "failed"},
+        )
+        return {"error": "No image_path provided", "failure_reason": "generation_error", "status": "failed"}
+
     try:
         spec_dict, reasoning = await asyncio.wait_for(
-            asyncio.to_thread(_run_analyze_vision, state["image_path"]),
+            asyncio.to_thread(_run_analyze_vision, image_path),
             timeout=LLM_TIMEOUT_S,
         )
     except Exception as exc:
         reason = map_exception_to_failure_reason(exc)
         logger.error("Vision analysis failed: %s (%s)", exc, reason)
-        # Sync DB to awaiting_drawing_confirmation so confirm endpoint accepts resume
-        await _safe_update_job(state["job_id"], status="awaiting_drawing_confirmation")
+        await _safe_update_job(state["job_id"], status="failed", error=str(exc))
         await _safe_dispatch(
             "job.failed",
             {"job_id": state["job_id"], "error": str(exc), "failure_reason": reason, "status": "failed"},

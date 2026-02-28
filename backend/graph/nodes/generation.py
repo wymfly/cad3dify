@@ -26,14 +26,20 @@ def _run_template_generation(
     from backend.api.generate import _run_template_generation as _orig_run
     from backend.models.job import Job
 
-    # Build a minimal mock job object for the legacy function signature
+    # Build a minimal mock job object for the legacy function signature.
+    # The legacy function reads template_name from job.result dict.
     job = Job(
         job_id=job_id,
         input_type="text",
         input_text="",
         created_at="",
     )
-    _orig_run(job, confirmed_params, step_path)
+    job.result = {"template_name": matched_template} if matched_template else None
+    success = _orig_run(job, confirmed_params, step_path)
+    if not success:
+        raise RuntimeError(
+            f"Template generation failed: template={matched_template!r}"
+        )
     return step_path
 
 
@@ -101,9 +107,12 @@ async def generate_step_drawing_node(state: CadJobState) -> dict[str, Any]:
     )
 
     try:
+        image_path = state.get("image_path")
+        if not image_path:
+            return {"error": "No image_path provided", "failure_reason": "generation_error", "status": "failed"}
         await asyncio.to_thread(
             _run_generate_from_spec,
-            image_path=state["image_path"],
+            image_path=image_path,
             drawing_spec=state.get("confirmed_spec") or state.get("drawing_spec"),
             step_path=step_path,
         )

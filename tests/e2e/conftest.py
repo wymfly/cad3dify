@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -55,6 +56,24 @@ async def _init_and_clean_db():
         await conn.run_sync(Base.metadata.create_all)
     yield
     await clear_jobs()
+
+
+@pytest.fixture(autouse=True)
+def _mock_graph_analysis():
+    """Mock LLM-dependent analysis functions for graph integration tests."""
+    mock_intent = {"description": "test part", "parameters": {"diameter": 50}}
+    with (
+        patch(
+            "backend.graph.nodes.analysis._parse_intent",
+            new_callable=AsyncMock,
+            return_value=mock_intent,
+        ),
+        patch(
+            "backend.graph.nodes.analysis._run_analyze_vision",
+            return_value=({"part_type": "rotational"}, "mock reasoning"),
+        ),
+    ):
+        yield
 
 
 @pytest.fixture()

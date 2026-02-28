@@ -90,14 +90,16 @@ async def get_compiled_graph(db_path: str | None = None):
 
         checkpointer_ctx = AsyncSqliteSaver.from_conn_string(db_path)
         checkpointer = await checkpointer_ctx.__aenter__()
-        # NOTE: the context manager keeps the aiosqlite connection alive.
-        # Callers should retain *checkpointer_ctx* if cleanup is needed.
     else:
+        checkpointer_ctx = None
         from langgraph.checkpoint.memory import MemorySaver
 
         checkpointer = MemorySaver()
 
-    return _build_workflow().compile(
+    compiled = _build_workflow().compile(
         checkpointer=checkpointer,
         interrupt_before=["confirm_with_user"],
     )
+    # Attach the context manager so callers can close the connection.
+    compiled._checkpointer_ctx = checkpointer_ctx  # type: ignore[attr-defined]
+    return compiled

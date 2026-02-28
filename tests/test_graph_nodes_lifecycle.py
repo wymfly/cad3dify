@@ -122,5 +122,6 @@ class TestFinalizeNode:
         assert call_kwargs["printability_result"] == {"score": 0.95}
         # Verify ORM mapping: confirmed_spec → drawing_spec_confirmed
         assert "drawing_spec_confirmed" in call_kwargs
-        # Verify ORM mapping: step_path → output_step_path
-        assert "output_step_path" in call_kwargs
+        # Verify step_path assembled into result JSON
+        assert "result" in call_kwargs
+        assert call_kwargs["result"]["step_path"] == "/outputs/test-123/model.step"

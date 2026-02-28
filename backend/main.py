@@ -46,6 +46,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     yield
 
+    # Clean up checkpointer connection
+    ctx = getattr(app.state.cad_graph, "_checkpointer_ctx", None)
+    if ctx is not None:
+        await ctx.__aexit__(None, None, None)
+
 
 app = FastAPI(title="cad3dify", version="3.0.0", lifespan=lifespan)
 

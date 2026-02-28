@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -23,9 +22,7 @@ async def _safe_dispatch(event_name: str, payload: dict[str, Any]) -> None:
     in isolation.
     """
     try:
-        result = adispatch_custom_event(event_name, payload)
-        if asyncio.iscoroutine(result):
-            await result
+        await adispatch_custom_event(event_name, payload)
     except RuntimeError:
         # No parent run context — expected in unit tests
         pass
@@ -64,7 +61,7 @@ async def finalize_node(state: CadJobState) -> dict[str, Any]:
 
     # Build ORM update kwargs using STATE_TO_ORM_MAPPING
     orm_kwargs: dict[str, Any] = {"status": final_status}
-    direct_fields = ["intent", "drawing_spec", "error", "result"]
+    direct_fields = ["intent", "drawing_spec", "error"]
     for field in direct_fields:
         val = state.get(field)
         if val is not None:
@@ -74,6 +71,17 @@ async def finalize_node(state: CadJobState) -> dict[str, Any]:
         val = state.get(state_key)
         if val is not None:
             orm_kwargs[orm_col] = val
+
+    # Assemble `result` JSON from step_path + model_url
+    result_dict: dict[str, Any] = {}
+    if state.get("step_path"):
+        result_dict["step_path"] = state["step_path"]
+    if state.get("model_url"):
+        result_dict["model_url"] = state["model_url"]
+    if state.get("matched_template"):
+        result_dict["template_name"] = state["matched_template"]
+    if result_dict:
+        orm_kwargs["result"] = result_dict
 
     await update_job(state["job_id"], **orm_kwargs)
 
