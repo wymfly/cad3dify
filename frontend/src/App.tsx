@@ -1,10 +1,9 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { ConfigProvider } from 'antd';
-import zhCN from 'antd/locale/zh_CN';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { ThemeProvider } from './contexts/ThemeContext.tsx';
+import WorkbenchLayout from './layouts/WorkbenchLayout.tsx';
 import MainLayout from './layouts/MainLayout.tsx';
 import { GenerateWorkflowProvider } from './contexts/GenerateWorkflowContext.tsx';
 import { OrganicWorkflowProvider } from './contexts/OrganicWorkflowContext.tsx';
-import Home from './pages/Home/index.tsx';
 import Generate from './pages/Generate/index.tsx';
 import OrganicGenerate from './pages/OrganicGenerate/index.tsx';
 import Templates from './pages/Templates/index.tsx';
@@ -18,28 +17,39 @@ import JobDetailPage from './pages/History/JobDetailPage.tsx';
 
 export default function App() {
   return (
-    <ConfigProvider locale={zhCN}>
+    <ThemeProvider>
       <BrowserRouter>
         <GenerateWorkflowProvider>
           <OrganicWorkflowProvider>
             <Routes>
+              {/* 新三栏工作台路由 */}
+              <Route element={<WorkbenchLayout />}>
+                <Route path="/" element={<Navigate to="/precision" replace />} />
+                <Route path="/precision" element={<Generate />} />
+                <Route path="/organic" element={<OrganicGenerate />} />
+                <Route path="/library" element={<HistoryPage />} />
+                <Route path="/library/:jobId" element={<JobDetailPage />} />
+              </Route>
+
+              {/* 保留旧路由兼容（重定向） */}
+              <Route path="/generate" element={<Navigate to="/precision" replace />} />
+              <Route path="/generate/organic" element={<Navigate to="/organic" replace />} />
+              <Route path="/history" element={<Navigate to="/library" replace />} />
+              <Route path="/history/:jobId" element={<Navigate to="/library/:jobId" replace />} />
+
+              {/* 辅助页面使用旧布局 */}
               <Route element={<MainLayout />}>
-                <Route path="/" element={<Home />} />
-                <Route path="/generate" element={<Generate />} />
-                <Route path="/generate/organic" element={<OrganicGenerate />} />
                 <Route path="/templates" element={<Templates />} />
                 <Route path="/standards" element={<Standards />} />
                 <Route path="/benchmark" element={<Benchmark />} />
                 <Route path="/benchmark/run" element={<RunBenchmark />} />
                 <Route path="/benchmark/:runId" element={<ReportDetail />} />
-                <Route path="/history" element={<HistoryPage />} />
-                <Route path="/history/:jobId" element={<JobDetailPage />} />
                 <Route path="/settings" element={<Settings />} />
               </Route>
             </Routes>
           </OrganicWorkflowProvider>
         </GenerateWorkflowProvider>
       </BrowserRouter>
-    </ConfigProvider>
+    </ThemeProvider>
   );
 }

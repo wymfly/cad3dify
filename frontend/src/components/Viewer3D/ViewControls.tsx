@@ -18,12 +18,14 @@ const VIEW_PRESETS: CameraPreset[] = [
 
 interface ViewControlsProps {
   wireframe: boolean;
+  darkMode?: boolean;
   onWireframeToggle: () => void;
   onViewChange: (position: [number, number, number]) => void;
 }
 
 export default function ViewControls({
   wireframe,
+  darkMode = false,
   onWireframeToggle,
   onViewChange,
 }: ViewControlsProps) {
@@ -35,10 +37,10 @@ export default function ViewControls({
         bottom: 12,
         left: '50%',
         transform: 'translateX(-50%)',
-        background: 'rgba(255,255,255,0.9)',
+        background: darkMode ? 'rgba(31,31,31,0.9)' : 'rgba(255,255,255,0.9)',
         borderRadius: 6,
         padding: '4px 8px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+        boxShadow: darkMode ? '0 2px 8px rgba(0,0,0,0.4)' : '0 2px 8px rgba(0,0,0,0.12)',
         zIndex: 10,
       }}
     >

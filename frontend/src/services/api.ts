@@ -11,7 +11,35 @@ import type {
 } from '../types/standard.ts';
 import type { PrintProfile, PrintabilityResult } from '../types/printability.ts';
 
-const api = axios.create({ baseURL: '/api' });
+const api = axios.create({ baseURL: '/api/v1' });
+
+/** 统一 API 错误结构 */
+export interface ApiError {
+  code: string;
+  message: string;
+  details?: unknown;
+}
+
+/** 从 axios 错误中提取统一错误信息 */
+export function extractApiError(err: unknown): ApiError {
+  if (axios.isAxiosError(err) && err.response?.data?.error) {
+    const e = err.response.data.error as ApiError;
+    return { code: e.code ?? 'UNKNOWN', message: e.message ?? '未知错误', details: e.details };
+  }
+  if (err instanceof Error) {
+    return { code: 'NETWORK_ERROR', message: err.message };
+  }
+  return { code: 'UNKNOWN', message: '未知错误' };
+}
+
+// 响应拦截器：统一错误格式
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // 保留原始错误，供调用方 extractApiError
+    return Promise.reject(error);
+  },
+);
 
 export async function getTooltips(): Promise<Record<string, TooltipSpec>> {
   const { data } = await api.get<Record<string, TooltipSpec>>('/pipeline/tooltips');

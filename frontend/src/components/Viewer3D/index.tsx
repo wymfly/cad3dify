@@ -9,6 +9,7 @@ import ViewControls from './ViewControls.tsx';
 interface Viewer3DProps {
   modelUrl: string | null;
   wireframe?: boolean;
+  darkMode?: boolean;
   onLoaded?: () => void;
 }
 
@@ -65,7 +66,7 @@ function CameraController({ targetPosition, onAnimationDone }: CameraControllerP
   return null;
 }
 
-export default function Viewer3D({ modelUrl, wireframe: externalWireframe, onLoaded }: Viewer3DProps) {
+export default function Viewer3D({ modelUrl, wireframe: externalWireframe, darkMode = false, onLoaded }: Viewer3DProps) {
   const [internalWireframe, setInternalWireframe] = useState(false);
   const [cameraTarget, setCameraTarget] = useState<[number, number, number] | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -80,6 +81,12 @@ export default function Viewer3D({ modelUrl, wireframe: externalWireframe, onLoa
     setCameraTarget(null);
   }, []);
 
+  // 暗色模式配置
+  const bgColor = darkMode ? '#0a0a0a' : '#f0f0f0';
+  const ambientIntensity = darkMode ? 0.3 : 0.5;
+  const gridColors: [string, string] = darkMode ? ['#333', '#222'] : ['#ccc', '#eee'];
+  const placeholderColor = darkMode ? '#444' : '#d9d9d9';
+
   return (
     <div
       ref={containerRef}
@@ -88,7 +95,7 @@ export default function Viewer3D({ modelUrl, wireframe: externalWireframe, onLoa
         height: '100%',
         minHeight: 400,
         position: 'relative',
-        background: '#f5f5f5',
+        background: bgColor,
         borderRadius: 8,
         overflow: 'hidden',
       }}
@@ -97,9 +104,10 @@ export default function Viewer3D({ modelUrl, wireframe: externalWireframe, onLoa
         camera={{ position: [3, 3, 3], fov: 45, near: 0.1, far: 1000 }}
         style={{ width: '100%', height: '100%' }}
       >
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[5, 5, 5]} intensity={1} />
-        <directionalLight position={[-3, -3, -3]} intensity={0.3} />
+        <color attach="background" args={[bgColor]} />
+        <ambientLight intensity={ambientIntensity} />
+        <directionalLight position={[5, 5, 5]} intensity={darkMode ? 0.8 : 1} />
+        <directionalLight position={[-3, -3, -3]} intensity={darkMode ? 0.2 : 0.3} />
         <Environment preset="studio" />
         <OrbitControls
           enableDamping
@@ -119,10 +127,10 @@ export default function Viewer3D({ modelUrl, wireframe: externalWireframe, onLoa
         {!modelUrl && (
           <mesh>
             <boxGeometry args={[1, 1, 1]} />
-            <meshStandardMaterial color="#d9d9d9" wireframe={wireframe} />
+            <meshStandardMaterial color={placeholderColor} wireframe={wireframe} />
           </mesh>
         )}
-        <gridHelper args={[10, 10, '#ccc', '#eee']} />
+        <gridHelper args={[10, 10, gridColors[0], gridColors[1]]} />
       </Canvas>
 
       {!modelUrl && (
@@ -137,7 +145,7 @@ export default function Viewer3D({ modelUrl, wireframe: externalWireframe, onLoa
           }}
         >
           <Spin size="default" />
-          <div style={{ marginTop: 8, color: '#999', fontSize: 13 }}>
+          <div style={{ marginTop: 8, color: darkMode ? '#666' : '#999', fontSize: 13 }}>
             等待模型加载...
           </div>
         </div>
@@ -145,6 +153,7 @@ export default function Viewer3D({ modelUrl, wireframe: externalWireframe, onLoa
 
       <ViewControls
         wireframe={wireframe}
+        darkMode={darkMode}
         onWireframeToggle={() => setInternalWireframe((v) => !v)}
         onViewChange={handleViewChange}
       />
