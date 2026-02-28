@@ -63,6 +63,25 @@ async def get_job_detail(
 
     corrections = await list_corrections_by_job(session, job_id)
 
+    # Fall back to JSON file if DB has no corrections
+    corrections_list: list[dict[str, Any]] = []
+    if corrections:
+        corrections_list = [
+            {
+                "id": c.id,
+                "field_path": c.field_path,
+                "original_value": c.original_value,
+                "corrected_value": c.corrected_value,
+                "timestamp": c.timestamp.isoformat() if c.timestamp else None,
+            }
+            for c in corrections
+        ]
+    else:
+        from backend.core.correction_tracker import load_corrections
+
+        json_corrections = load_corrections(job_id)
+        corrections_list = json_corrections if json_corrections else []
+
     detail = _job_summary(job)
     detail["intent"] = job.intent
     detail["precise_spec"] = job.precise_spec
@@ -70,16 +89,7 @@ async def get_job_detail(
     detail["drawing_spec_confirmed"] = job.drawing_spec_confirmed
     detail["image_path"] = job.image_path
     detail["recommendations"] = job.recommendations or []
-    detail["corrections"] = [
-        {
-            "id": c.id,
-            "field_path": c.field_path,
-            "original_value": c.original_value,
-            "corrected_value": c.corrected_value,
-            "timestamp": c.timestamp.isoformat() if c.timestamp else None,
-        }
-        for c in corrections
-    ]
+    detail["corrections"] = corrections_list
     return detail
 
 

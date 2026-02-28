@@ -9,7 +9,7 @@ import type {
   CheckRequest,
   CheckResponse,
 } from '../types/standard.ts';
-import type { PrintProfile } from '../types/printability.ts';
+import type { PrintProfile, PrintabilityResult } from '../types/printability.ts';
 
 const api = axios.create({ baseURL: '/api' });
 

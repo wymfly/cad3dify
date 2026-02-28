@@ -573,8 +573,8 @@ async def confirm_drawing_spec(
                     "model_url": model_url,
                     "step_path": step_path,
                     "confirmed_spec": body.confirmed_spec,
-                    "printability": printability_data,
                 },
+                printability_result=printability_data,
             )
             yield _sse("completed", {
                 "job_id": job_id,
@@ -659,7 +659,7 @@ async def confirm_params(
                 glb_path = str(job_dir / "model.glb")
                 model_url: str | None = None
                 try:
-                    _convert_step_to_glb(step_path, glb_path)
+                    await asyncio.to_thread(_convert_step_to_glb, step_path, glb_path)
                     model_url = get_model_url(job_id, "glb")
                 except Exception:
                     model_url = None
@@ -677,8 +677,8 @@ async def confirm_params(
                         "model_url": model_url,
                         "step_path": step_path,
                         "confirmed_params": body.confirmed_params,
-                        "printability": printability_data,
                     },
+                    printability_result=printability_data,
                 )
                 yield _sse("completed", {
                     "job_id": job_id,

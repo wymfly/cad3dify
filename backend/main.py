@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,10 +27,18 @@ from backend.api import (
     templates,
 )
 from backend.config import Settings
+from backend.db.database import init_db
 
 settings = Settings()
 
-app = FastAPI(title="cad3dify", version="3.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    await init_db()
+    yield
+
+
+app = FastAPI(title="cad3dify", version="3.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

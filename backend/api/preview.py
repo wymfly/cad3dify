@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -178,7 +179,12 @@ async def preview_parametric(body: PreviewRequest) -> PreviewResponse:
     out_dir = ensure_job_dir(preview_job_id)
     final_glb = str(out_dir / "model.glb")
     Path(final_glb).parent.mkdir(parents=True, exist_ok=True)
-    Path(glb_path).rename(final_glb)
+    shutil.move(glb_path, final_glb)
+
+    # Clean up temp directory (GLB already moved to outputs)
+    preview_dir = Path(glb_path).parent
+    if preview_dir.name.startswith("preview_"):
+        shutil.rmtree(preview_dir, ignore_errors=True)
 
     glb_url = get_model_url(preview_job_id, "glb")
     _preview_cache[cache_key] = glb_url
