@@ -7,7 +7,11 @@ from langgraph.graph import END, START, StateGraph
 from backend.graph.nodes.analysis import (
     analyze_intent_node,
     analyze_vision_node,
-    stub_organic_node,
+)
+from backend.graph.nodes.organic import (
+    analyze_organic_node,
+    generate_organic_mesh_node,
+    postprocess_organic_node,
 )
 from backend.graph.nodes.generation import (
     generate_step_drawing_node,
@@ -34,10 +38,12 @@ def _build_workflow() -> StateGraph:
     workflow.add_node("create_job", create_job_node)
     workflow.add_node("analyze_intent", analyze_intent_node)
     workflow.add_node("analyze_vision", analyze_vision_node)
-    workflow.add_node("stub_organic", stub_organic_node)
+    workflow.add_node("analyze_organic", analyze_organic_node)
     workflow.add_node("confirm_with_user", confirm_with_user_node)
     workflow.add_node("generate_step_text", generate_step_text_node)
     workflow.add_node("generate_step_drawing", generate_step_drawing_node)
+    workflow.add_node("generate_organic_mesh", generate_organic_mesh_node)
+    workflow.add_node("postprocess_organic", postprocess_organic_node)
     workflow.add_node("convert_preview", convert_preview_node)
     workflow.add_node("check_printability", check_printability_node)
     workflow.add_node("finalize", finalize_node)
@@ -48,21 +54,28 @@ def _build_workflow() -> StateGraph:
     workflow.add_conditional_edges(
         "create_job",
         route_by_input_type,
-        {"text": "analyze_intent", "drawing": "analyze_vision", "organic": "stub_organic"},
+        {"text": "analyze_intent", "drawing": "analyze_vision", "organic": "analyze_organic"},
     )
 
     workflow.add_edge("analyze_intent", "confirm_with_user")
     workflow.add_edge("analyze_vision", "confirm_with_user")
-    workflow.add_edge("stub_organic", "confirm_with_user")
+    workflow.add_edge("analyze_organic", "confirm_with_user")
 
     workflow.add_conditional_edges(
         "confirm_with_user",
         route_after_confirm,
-        {"text": "generate_step_text", "drawing": "generate_step_drawing", "finalize": "finalize"},
+        {
+            "text": "generate_step_text",
+            "drawing": "generate_step_drawing",
+            "generate_organic_mesh": "generate_organic_mesh",
+            "finalize": "finalize",
+        },
     )
 
     workflow.add_edge("generate_step_text", "convert_preview")
     workflow.add_edge("generate_step_drawing", "convert_preview")
+    workflow.add_edge("generate_organic_mesh", "postprocess_organic")
+    workflow.add_edge("postprocess_organic", "finalize")
     workflow.add_edge("convert_preview", "check_printability")
     workflow.add_edge("check_printability", "finalize")
     workflow.add_edge("finalize", END)

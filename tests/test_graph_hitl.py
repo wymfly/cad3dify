@@ -309,7 +309,9 @@ class TestHitlEdgeCases:
 
     @pytest.mark.asyncio
     async def test_organic_path_interrupts(self) -> None:
-        """Organic path goes through stub_organic → interrupt before confirm."""
+        """Organic path goes through analyze_organic → interrupt before confirm."""
+        from unittest.mock import MagicMock
+
         from backend.graph import get_compiled_graph
 
         graph = await get_compiled_graph()
@@ -322,8 +324,16 @@ class TestHitlEdgeCases:
             "status": "pending",
         }
 
+        mock_spec = MagicMock()
+        mock_spec.model_dump.return_value = {"prompt_en": "a dragon sculpture"}
+
+        mock_builder = MagicMock()
+        mock_builder.build = AsyncMock(return_value=mock_spec)
+
         p1, p2, p3 = _lifecycle_patches()
-        with p1, p2, p3:
+        p4 = patch("backend.graph.nodes.organic._safe_update_job", new_callable=AsyncMock)
+        p5 = patch("backend.graph.nodes.organic.OrganicSpecBuilder", return_value=mock_builder)
+        with p1, p2, p3, p4, p5:
             result = await graph.ainvoke(initial, config=config)
 
         assert result["status"] == "awaiting_confirmation"

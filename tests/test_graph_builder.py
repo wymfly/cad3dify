@@ -17,9 +17,10 @@ class TestBuildGraph:
         node_names = set(graph.nodes.keys())
         expected = {
             "create_job",
-            "analyze_intent", "analyze_vision", "stub_organic",
+            "analyze_intent", "analyze_vision", "analyze_organic",
             "confirm_with_user",
             "generate_step_text", "generate_step_drawing",
+            "generate_organic_mesh", "postprocess_organic",
             "convert_preview", "check_printability",
             "finalize",
         }

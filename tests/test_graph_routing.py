@@ -31,10 +31,10 @@ class TestRouteAfterConfirm:
         state = CadJobState(job_id="t1", input_type="drawing", status="confirmed")
         assert route_after_confirm(state) == "drawing"
 
-    def test_organic_routes_to_finalize(self) -> None:
+    def test_organic_routes_to_generate_organic_mesh(self) -> None:
         from backend.graph.routing import route_after_confirm
         state = CadJobState(job_id="t1", input_type="organic", status="confirmed")
-        assert route_after_confirm(state) == "finalize"
+        assert route_after_confirm(state) == "generate_organic_mesh"
 
     def test_failed_routes_to_finalize(self) -> None:
         from backend.graph.routing import route_after_confirm

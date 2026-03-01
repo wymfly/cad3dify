@@ -100,14 +100,26 @@ class TestAnalyzeVisionNode:
         assert result["failure_reason"] == "timeout"
 
 
-class TestStubOrganicNode:
+class TestAnalyzeOrganicNode:
     @pytest.mark.asyncio
-    async def test_returns_awaiting(self) -> None:
-        from backend.graph.nodes.analysis import stub_organic_node
+    async def test_success_returns_organic_spec(self) -> None:
+        from unittest.mock import MagicMock
+
+        from backend.graph.nodes.organic import analyze_organic_node
 
         state = CadJobState(
             job_id="t1", input_type="organic", input_text="a dragon sculpture",
             status="created",
         )
-        result = await stub_organic_node(state)
+        mock_spec = MagicMock()
+        mock_spec.model_dump.return_value = {"prompt_en": "a dragon sculpture", "style": "organic"}
+        mock_builder = MagicMock()
+        mock_builder.build = AsyncMock(return_value=mock_spec)
+        with patch(
+            "backend.graph.nodes.organic.OrganicSpecBuilder",
+            return_value=mock_builder,
+        ):
+            result = await analyze_organic_node(state)
+
+        assert result["organic_spec"] == {"prompt_en": "a dragon sculpture", "style": "organic"}
         assert result["status"] == "awaiting_confirmation"

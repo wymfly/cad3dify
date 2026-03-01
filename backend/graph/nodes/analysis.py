@@ -1,4 +1,4 @@
-"""Analysis nodes: intent parsing, vision spec, organic stub."""
+"""Analysis nodes: intent parsing and vision spec."""
 
 from __future__ import annotations
 
@@ -153,8 +153,3 @@ async def analyze_vision_node(state: CadJobState) -> dict[str, Any]:
     return {"drawing_spec": spec_dict, "status": "awaiting_drawing_confirmation"}
 
 
-async def stub_organic_node(state: CadJobState) -> dict[str, Any]:
-    """Organic input: no LLM analysis needed, go straight to HITL."""
-    await _safe_update_job(state["job_id"], status="awaiting_confirmation")
-    await _safe_dispatch("job.awaiting_confirmation", {"job_id": state["job_id"], "status": "awaiting_confirmation"})
-    return {"status": "awaiting_confirmation"}

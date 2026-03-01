@@ -16,5 +16,5 @@ def route_after_confirm(state: CadJobState) -> str:
         return "finalize"
     input_type = state["input_type"]
     if input_type == "organic":
-        return "finalize"
+        return "generate_organic_mesh"
     return input_type  # "text" | "drawing"
