@@ -31,6 +31,7 @@ LLM_TIMEOUT_S = 60.0
 
 # Import _safe_dispatch from lifecycle (reuse pattern)
 from backend.graph.nodes.lifecycle import _safe_dispatch
+from backend.graph.decorators import timed_node
 
 
 async def _parse_intent(text: str) -> dict:
@@ -63,6 +64,7 @@ def _run_analyze_vision(image_path: str) -> tuple:
     return spec_dict, reasoning
 
 
+@timed_node("analyze_intent")
 async def analyze_intent_node(state: CadJobState) -> dict[str, Any]:
     """Parse user text into IntentSpec via LLM (with timeout)."""
     import time as _time
@@ -81,11 +83,16 @@ async def analyze_intent_node(state: CadJobState) -> dict[str, Any]:
             "job.failed",
             {"job_id": state["job_id"], "error": str(exc), "failure_reason": reason, "status": "failed"},
         )
-        return {"error": str(exc), "failure_reason": reason, "status": "failed"}
+        return {
+            "error": str(exc), "failure_reason": reason, "status": "failed",
+            "_reasoning": {"error": str(exc)},
+        }
 
     # Template matching via part_type semantic routing (replaces keyword _match_template)
     matched_template = None
     template_params: list[dict] = []
+    part_type = None
+    candidates: list = []
     try:
         from backend.core.template_engine import TemplateEngine
         from backend.core.spec_compiler import rank_templates
@@ -93,7 +100,6 @@ async def analyze_intent_node(state: CadJobState) -> dict[str, Any]:
         _templates_dir = Path(__file__).parent.parent.parent / "knowledge" / "templates"
         engine = TemplateEngine.from_directory(_templates_dir)
 
-        part_type = None
         if isinstance(intent, dict):
             part_type = intent.get("part_type")
         if part_type:
@@ -135,17 +141,6 @@ async def analyze_intent_node(state: CadJobState) -> dict[str, Any]:
     except Exception as exc:
         logger.debug("Engineering standards recommendations skipped: %s", exc)
 
-    await _safe_dispatch(
-        "job.intent_analyzed",
-        {
-            "job_id": state["job_id"],
-            "intent": intent,
-            "template_name": matched_template,
-            "params": template_params,
-            "recommendations": recommendations,
-            "status": "intent_parsed",
-        },
-    )
     await _safe_update_job(state["job_id"], status="awaiting_confirmation", intent=intent)
     await _safe_dispatch("job.awaiting_confirmation", {"job_id": state["job_id"], "status": "awaiting_confirmation"})
 
@@ -162,15 +157,21 @@ async def analyze_intent_node(state: CadJobState) -> dict[str, Any]:
         "recommendations": recommendations,
         "status": "awaiting_confirmation",
         "token_stats": token_stats,
+        "_reasoning": {
+            "part_type": str(part_type) if part_type else "未识别",
+            "template_match": f"匹配模板: {matched_template}" if matched_template else "无匹配模板",
+            "candidate_count": f"{len(candidates)} 候选模板",
+            "recommendations": f"{len(recommendations)} 条工程标准建议",
+        },
     }
 
 
+@timed_node("analyze_vision")
 async def analyze_vision_node(state: CadJobState) -> dict[str, Any]:
     """Run VL model to extract DrawingSpec from uploaded image (with timeout)."""
     import time as _time
 
     _t0 = _time.time()
-    await _safe_dispatch("job.vision_analyzing", {"job_id": state["job_id"], "status": "analyzing"})
 
     image_path = state.get("image_path")
     if not image_path:
@@ -179,7 +180,10 @@ async def analyze_vision_node(state: CadJobState) -> dict[str, Any]:
             "job.failed",
             {"job_id": state["job_id"], "error": "No image_path provided", "failure_reason": "generation_error", "status": "failed"},
         )
-        return {"error": "No image_path provided", "failure_reason": "generation_error", "status": "failed"}
+        return {
+            "error": "No image_path provided", "failure_reason": "generation_error", "status": "failed",
+            "_reasoning": {"error": "No image_path provided"},
+        }
 
     # Check result cache (keyed by image content SHA256)
     try:
@@ -209,7 +213,10 @@ async def analyze_vision_node(state: CadJobState) -> dict[str, Any]:
                 "job.failed",
                 {"job_id": state["job_id"], "error": str(exc), "failure_reason": reason, "status": "failed"},
             )
-            return {"error": str(exc), "failure_reason": reason, "status": "failed"}
+            return {
+                "error": str(exc), "failure_reason": reason, "status": "failed",
+                "_reasoning": {"error": str(exc)},
+            }
 
     await _safe_dispatch(
         "job.spec_ready",
@@ -224,6 +231,14 @@ async def analyze_vision_node(state: CadJobState) -> dict[str, Any]:
     stages.append({"name": "analyze_vision", "input_tokens": 0, "output_tokens": 0, "duration_s": round(_duration, 3)})
     token_stats["stages"] = stages
 
-    return {"drawing_spec": spec_dict, "status": "awaiting_drawing_confirmation", "token_stats": token_stats}
+    return {
+        "drawing_spec": spec_dict,
+        "status": "awaiting_drawing_confirmation",
+        "token_stats": token_stats,
+        "_reasoning": {
+            "spec_source": "VL 模型分析",
+            "part_type": spec_dict.get("part_type", "unknown") if isinstance(spec_dict, dict) else "unknown",
+        },
+    }
 
 
