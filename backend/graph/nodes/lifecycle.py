@@ -28,10 +28,10 @@ async def _safe_dispatch(event_name: str, payload: dict[str, Any]) -> None:
         pass
 
 
-from backend.graph.decorators import timed_node
+# NOTE: @timed_node decorators for lifecycle nodes are applied in builder.py
+# to avoid circular import (decorators.py imports _safe_dispatch from here).
 
 
-@timed_node("create_job")
 async def create_job_node(state: CadJobState) -> dict[str, Any]:
     """Create DB Job record and dispatch job.created event."""
     await create_job(
@@ -53,7 +53,6 @@ async def create_job_node(state: CadJobState) -> dict[str, Any]:
     }
 
 
-@timed_node("confirm_with_user")
 async def confirm_with_user_node(state: CadJobState) -> dict[str, Any]:
     """Process Command(resume=...) data after interrupt.
 
@@ -64,7 +63,6 @@ async def confirm_with_user_node(state: CadJobState) -> dict[str, Any]:
     return {"status": "confirmed", "_reasoning": {"confirmation": "user confirmed parameters"}}
 
 
-@timed_node("finalize")
 async def finalize_node(state: CadJobState) -> dict[str, Any]:
     """Write final state to DB and dispatch terminal event."""
     is_failed = state.get("error") is not None or state.get("status") == "failed"

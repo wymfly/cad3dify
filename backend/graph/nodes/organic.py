@@ -9,6 +9,7 @@ from typing import Any
 
 from backend.core.organic_spec_builder import OrganicSpecBuilder
 from backend.graph.llm_utils import map_exception_to_failure_reason
+from backend.graph.decorators import timed_node
 from backend.graph.nodes.lifecycle import _safe_dispatch
 from backend.graph.state import CadJobState
 from backend.models.job import update_job as _update_job
@@ -32,6 +33,7 @@ async def _safe_update_job(job_id: str, **kwargs: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
+@timed_node("analyze_organic")
 async def analyze_organic_node(state: CadJobState) -> dict[str, Any]:
     """Build OrganicSpec via LLM, dispatch spec_ready event, pause for HITL."""
     job_id = state["job_id"]
@@ -59,7 +61,10 @@ async def analyze_organic_node(state: CadJobState) -> dict[str, Any]:
             "job_id": job_id, "error": error_msg,
             "failure_reason": "timeout", "status": "failed",
         })
-        return {"error": error_msg, "failure_reason": "timeout", "status": "failed"}
+        return {
+            "error": error_msg, "failure_reason": "timeout", "status": "failed",
+            "_reasoning": {"error": error_msg},
+        }
     except Exception as exc:
         reason = map_exception_to_failure_reason(exc)
         await _safe_update_job(job_id, status="failed", error=str(exc))
@@ -67,16 +72,12 @@ async def analyze_organic_node(state: CadJobState) -> dict[str, Any]:
             "job_id": job_id, "error": str(exc),
             "failure_reason": reason, "status": "failed",
         })
-        return {"error": str(exc), "failure_reason": reason, "status": "failed"}
+        return {
+            "error": str(exc), "failure_reason": reason, "status": "failed",
+            "_reasoning": {"error": str(exc)},
+        }
 
     spec_dict = spec.model_dump()
-
-    # Dispatch spec_ready event with full spec for frontend confirmation UI
-    await _safe_dispatch("job.organic_spec_ready", {
-        "job_id": job_id,
-        "organic_spec": spec_dict,
-        "status": "organic_spec_ready",
-    })
 
     # Persist to DB so GET /api/v1/jobs/{id} returns spec on page refresh
     await _safe_update_job(job_id, status="awaiting_confirmation", organic_spec=spec_dict)
@@ -84,7 +85,16 @@ async def analyze_organic_node(state: CadJobState) -> dict[str, Any]:
         "job_id": job_id, "status": "awaiting_confirmation",
     })
 
-    return {"organic_spec": spec_dict, "status": "awaiting_confirmation"}
+    return {
+        "organic_spec": spec_dict,
+        "status": "awaiting_confirmation",
+        "_reasoning": {
+            "quality_mode": quality_mode,
+            "provider": state.get("organic_provider") or "auto",
+            "has_reference_image": str(bool(state.get("organic_reference_image"))),
+            "prompt_preview": input_text[:100] if input_text else "N/A",
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +102,7 @@ async def analyze_organic_node(state: CadJobState) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+@timed_node("generate_organic_mesh")
 async def generate_organic_mesh_node(state: CadJobState) -> dict[str, Any]:
     """Create MeshProvider, generate raw mesh, dispatch progress events."""
     job_id = state["job_id"]
@@ -100,7 +111,7 @@ async def generate_organic_mesh_node(state: CadJobState) -> dict[str, Any]:
     raw_mesh = state.get("raw_mesh_path")
     if raw_mesh and Path(raw_mesh).exists():
         logger.info("Mesh already exists at %s, skipping generation", raw_mesh)
-        return {}
+        return {"_reasoning": {"skip": "idempotent, mesh already exists"}}
 
     from backend.infra.mesh_providers import AutoProvider, HunyuanProvider, TripoProvider
     from backend.models.organic import OrganicSpec
@@ -115,9 +126,6 @@ async def generate_organic_mesh_node(state: CadJobState) -> dict[str, Any]:
     if ref_id:
         reference_image_bytes = await _load_reference_image(ref_id)
 
-    await _safe_dispatch("job.generating", {
-        "job_id": job_id, "stage": "mesh_generation", "status": "generating",
-    })
     await _safe_update_job(job_id, status="generating")
 
     # Instantiate provider with config from Settings.
@@ -161,9 +169,20 @@ async def generate_organic_mesh_node(state: CadJobState) -> dict[str, Any]:
             "job_id": job_id, "error": str(exc),
             "failure_reason": reason, "status": "failed",
         })
-        return {"error": str(exc), "failure_reason": reason, "status": "failed"}
+        return {
+            "error": str(exc), "failure_reason": reason, "status": "failed",
+            "_reasoning": {"error": str(exc), "provider": provider_name},
+        }
 
-    return {"raw_mesh_path": str(result_path), "status": "generating"}
+    return {
+        "raw_mesh_path": str(result_path),
+        "status": "generating",
+        "_reasoning": {
+            "provider": provider_name,
+            "has_reference_image": str(bool(reference_image_bytes)),
+            "output_path": str(result_path),
+        },
+    }
 
 
 async def _load_reference_image(file_id: str) -> bytes | None:
@@ -182,12 +201,16 @@ async def _load_reference_image(file_id: str) -> bytes | None:
 # ---------------------------------------------------------------------------
 
 
+@timed_node("postprocess_organic")
 async def postprocess_organic_node(state: CadJobState) -> dict[str, Any]:
     """Run full post-processing pipeline via asyncio.to_thread for CPU-bound ops."""
     job_id = state["job_id"]
     raw_mesh_path = state.get("raw_mesh_path")
     if not raw_mesh_path:
-        return {"error": "No raw_mesh_path in state", "status": "failed"}
+        return {
+            "error": "No raw_mesh_path in state", "status": "failed",
+            "_reasoning": {"error": "No raw_mesh_path in state"},
+        }
 
     spec_dict = state.get("organic_spec") or {}
     quality_mode = state.get("organic_quality_mode") or "standard"
@@ -304,6 +327,12 @@ async def postprocess_organic_node(state: CadJobState) -> dict[str, Any]:
             "organic_result": organic_result,
             "printability": printability_result,
             "status": "post_processed",
+            "_reasoning": {
+                "steps_completed": "7/7",
+                "warnings_count": str(len(warnings)),
+                "exports": f"GLB+STL{'+3MF' if threemf_url else ''}",
+                "printable": str(printability_result.get("printable", "N/A")) if printability_result else "检查跳过",
+            },
         }
 
     except Exception as exc:
@@ -313,4 +342,7 @@ async def postprocess_organic_node(state: CadJobState) -> dict[str, Any]:
             "job_id": job_id, "error": str(exc),
             "failure_reason": reason, "status": "failed",
         })
-        return {"error": str(exc), "failure_reason": reason, "status": "failed"}
+        return {
+            "error": str(exc), "failure_reason": reason, "status": "failed",
+            "_reasoning": {"error": str(exc)},
+        }

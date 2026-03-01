@@ -22,11 +22,18 @@ from backend.graph.nodes.generation import (
     generate_step_drawing_node,
     generate_step_text_node,
 )
+from backend.graph.decorators import timed_node
 from backend.graph.nodes.lifecycle import (
-    confirm_with_user_node,
-    create_job_node,
-    finalize_node,
+    confirm_with_user_node as _confirm_with_user_node,
+    create_job_node as _create_job_node,
+    finalize_node as _finalize_node,
 )
+
+# Apply @timed_node here (not in lifecycle.py) to avoid circular import:
+# decorators.py imports _safe_dispatch from lifecycle.py.
+create_job_node = timed_node("create_job")(_create_job_node)
+confirm_with_user_node = timed_node("confirm_with_user")(_confirm_with_user_node)
+finalize_node = timed_node("finalize")(_finalize_node)
 from backend.graph.nodes.postprocess import (
     check_printability_node,
     convert_preview_node,
