@@ -43,4 +43,4 @@ The system SHALL implement a single `CadJobStateGraph` using LangGraph `StateGra
 
 **Reason**: Organic generation is now fully handled within the Graph via `generate_organic_mesh_node` → `postprocess_organic_node`. No delegation to external endpoints.
 
-**Migration**: Delete `/api/v1/organic` endpoint. All organic generation goes through `/api/v1/jobs` with `input_type=organic`.
+**Migration**: Delete `/api/v1/organic` endpoint after relocating `/providers` (→ `/api/v1/jobs/organic-providers`) and `/upload` (→ `/api/v1/jobs/upload-reference`) endpoints. All organic generation goes through `/api/v1/jobs` with `input_type=organic`.

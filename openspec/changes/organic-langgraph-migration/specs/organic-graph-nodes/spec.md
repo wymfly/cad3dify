@@ -29,7 +29,8 @@ The system SHALL implement `generate_organic_mesh_node` as a LangGraph node that
 #### Scenario: Mesh generated successfully
 - **WHEN** `generate_organic_mesh_node` executes with confirmed organic spec
 - **THEN** a MeshProvider is created based on `state["organic_provider"]`
-- **AND** `provider.generate(spec, reference_image)` is called
+- **AND** `provider.generate(spec, reference_image, on_progress=callback)` is called with an `on_progress` callback
+- **AND** the callback dispatches `job.generating` keepalive SSE events every 15-30s during the 3-5 minute generation period to prevent SSE connection timeout
 - **AND** the raw mesh path is stored in `state["raw_mesh_path"]`
 - **AND** a `job.generating` SSE event is dispatched with `stage="mesh_generation"`
 
@@ -53,7 +54,8 @@ The system SHALL implement `postprocess_organic_node` as a single LangGraph node
 
 #### Scenario: Full post-processing pipeline succeeds
 - **WHEN** `postprocess_organic_node` executes with a valid `raw_mesh_path`
-- **THEN** the node executes steps in order: load → repair → scale → boolean → validate → export → printability
+- **THEN** the node wraps CPU-bound mesh operations (pymeshlab, trimesh, manifold3d) via `asyncio.to_thread` to avoid blocking the event loop
+- **AND** executes steps in order: load → repair → scale → boolean → validate → export → printability
 - **AND** each step dispatches a `job.post_processing` SSE event with `{step, step_status, message, progress}`
 - **AND** the final state includes `model_url`, `mesh_stats`, `printability`, `organic_warnings`, `organic_result`
 

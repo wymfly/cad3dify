@@ -2,15 +2,15 @@
 
 - [ ] 1.1 在 `backend/graph/state.py` 中扩展 CadJobState：新增 `organic_spec`、`organic_provider`、`organic_quality_mode`、`organic_reference_image`、`raw_mesh_path`、`mesh_stats`、`organic_warnings`、`organic_result` 字段，更新 `STATE_TO_ORM_MAPPING`
 - [ ] 1.2 在 `backend/graph/routing.py` 中修改 `route_after_confirm`：organic 不再返回 `"finalize"`，改为返回 `"organic"`
-- [ ] 1.3 在 `backend/api/v1/jobs.py` 中扩展 `CreateJobRequest`：新增 `reference_image: str | None = None` 字段；`create_job_endpoint` 中将 organic 字段映射到初始 state（`organic_provider`、`organic_quality_mode`、`organic_reference_image`）
+- [ ] 1.3 在 `backend/api/v1/jobs.py` 中扩展 `CreateJobRequest`：新增 `reference_image: str | None = None`、`constraints: dict[str, Any] | None = None`（含 bounding_box、engineering_cuts）字段；修改 `ConfirmRequest.confirmed_params` 类型从 `dict[str, float]` 为 `dict[str, Any]`（organic 确认包含字符串值如 prompt_en、provider）；`create_job_endpoint` 中将 organic 字段映射到初始 state（`organic_provider`、`organic_quality_mode`、`organic_reference_image`、`constraints`）
 
 ## 2. 后端节点实现 `[backend]`
 
 依赖：1
 
 - [ ] 2.1 创建 `backend/graph/nodes/organic.py`：实现 `analyze_organic_node`——调用 OrganicSpecBuilder.build()，60s 超时，成功后 dispatch `job.organic_spec_ready` 事件，设置 status=awaiting_confirmation
-- [ ] 2.2 实现 `generate_organic_mesh_node`——创建 MeshProvider，读取 reference_image（如有），调用 provider.generate()，幂等检查，dispatch `job.generating` 事件
-- [ ] 2.3 实现 `postprocess_organic_node`——顺序执行 load/repair/scale/boolean/validate/export/printability，每步 dispatch `job.post_processing` 事件，布尔失败优雅降级，导出 GLB/STL/3MF，运行可打印性检查
+- [ ] 2.2 实现 `generate_organic_mesh_node`——创建 MeshProvider，读取 reference_image（如有），调用 provider.generate()，幂等检查，dispatch `job.generating` 事件；传入 `on_progress` 回调在生成过程中每 15-30s dispatch `job.generating` keepalive 事件（防止 3-5 分钟 SSE 连接超时断开）
+- [ ] 2.3 实现 `postprocess_organic_node`——通过 `asyncio.to_thread` 包装 CPU-bound 操作（pymeshlab/trimesh/manifold3d），顺序执行 load/repair/scale/boolean/validate/export/printability，每步 dispatch `job.post_processing` 事件，布尔失败优雅降级，导出 GLB/STL/3MF，运行可打印性检查
 
 ## 3. 图拓扑更新 `[backend]`
 
@@ -24,7 +24,7 @@
 
 依赖：1
 
-- [ ] 4.1 修改 `backend/graph/nodes/lifecycle.py` 中 `finalize_node`：当 `input_type=organic` 时，从 `organic_result` 字段组装 `result` JSON（含 model_url、stl_url、threemf_url、mesh_stats），写入 DB Job 表
+- [ ] 4.1 修改 `backend/graph/nodes/lifecycle.py` 中 `finalize_node`：当 `input_type=organic` 时，从 `organic_result` 字段组装 `result` JSON（含 model_url、stl_url、threemf_url、mesh_stats、warnings、printability），写入 DB Job 表；同时确保 `job.completed` SSE 事件 payload 也包含这些 organic 字段供前端直接消费
 
 ## 5. 单元测试 `[backend]` `[test]`
 
@@ -35,14 +35,17 @@
 - [ ] 5.3 测试 `postprocess_organic_node`（全流程成功、布尔失败降级、draft 跳过布尔、3MF 导出失败）
 - [ ] 5.4 测试 `route_after_confirm` 返回 `"organic"` 路由
 - [ ] 5.5 测试 `finalize_node` organic 模式的 result 组装
+- [ ] 5.6 迁移或删除 `tests/test_organic_api.py`：该文件硬依赖 `/api/v1/organic*` 端点，需更新为基于 `/api/v1/jobs` 的 organic 测试或删除冗余用例
 
 ## 6. 后端清理 `[backend]`
 
 依赖：3, 5
 
-- [ ] 6.1 删除 `backend/api/v1/organic.py`（整个文件）
-- [ ] 6.2 从 `backend/main.py` 中移除 organic_router 的挂载
-- [ ] 6.3 验证 `/api/v1/organic` 端点已不可访问（返回 404）
+- [ ] 6.1 迁移 `/api/v1/organic/providers` 端点到 `/api/v1/jobs/organic-providers`（或保留在 jobs router 中），供前端获取可用 provider 列表
+- [ ] 6.2 迁移 `/api/v1/organic/upload` 端点到 `/api/v1/jobs/upload-reference`（参考图上传，MIME 白名单 png/jpeg/webp），与图纸上传端点区分
+- [ ] 6.3 删除 `backend/api/v1/organic.py`（整个文件）
+- [ ] 6.4 从 `backend/api/v1/router.py` 中移除 organic_router 的挂载（注意：挂载点在 router.py 而非 main.py）
+- [ ] 6.5 验证 `/api/v1/organic` 端点已不可访问（返回 404）
 
 ## 7. 前端改造 `[frontend]`
 
