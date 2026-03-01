@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from backend.api.organic import _get_settings, _require_organic_enabled
+from backend.api.v1.organic import _get_settings, _require_organic_enabled
 from backend.config import Settings
 from backend.models.organic_job import (
     OrganicJobStatus,
@@ -59,7 +59,7 @@ class TestFeatureGate:
     async def test_organic_disabled_returns_503(self, app, client: AsyncClient) -> None:
         app.dependency_overrides[_get_settings] = _disabled_settings
         try:
-            resp = await client.get("/api/generate/organic/providers")
+            resp = await client.get("/api/v1/organic/providers")
             assert resp.status_code == 503
         finally:
             app.dependency_overrides.pop(_get_settings, None)
@@ -68,7 +68,7 @@ class TestFeatureGate:
         app.dependency_overrides[_get_settings] = _disabled_settings
         try:
             resp = await client.post(
-                "/api/generate/organic",
+                "/api/v1/organic",
                 json={"prompt": "test"},
             )
             assert resp.status_code == 503
@@ -83,24 +83,24 @@ class TestFeatureGate:
 class TestUploadValidation:
     async def test_upload_rejects_invalid_mime(self, client: AsyncClient) -> None:
         resp = await client.post(
-            "/api/generate/organic/upload",
+            "/api/v1/organic/upload",
             files={"file": ("test.txt", b"hello", "text/plain")},
         )
         assert resp.status_code == 422
-        assert "Unsupported file type" in resp.json()["detail"]
+        assert "Unsupported file type" in resp.json()["error"]["message"]
 
     async def test_upload_rejects_oversize_file(self, client: AsyncClient) -> None:
         big_content = b"x" * (11 * 1024 * 1024)
         resp = await client.post(
-            "/api/generate/organic/upload",
+            "/api/v1/organic/upload",
             files={"file": ("big.png", big_content, "image/png")},
         )
         assert resp.status_code == 422
-        assert "File too large" in resp.json()["detail"]
+        assert "File too large" in resp.json()["error"]["message"]
 
     async def test_upload_accepts_valid_png(self, client: AsyncClient) -> None:
         resp = await client.post(
-            "/api/generate/organic/upload",
+            "/api/v1/organic/upload",
             files={"file": ("test.png", b"fake-png-data", "image/png")},
         )
         assert resp.status_code == 200
@@ -111,14 +111,14 @@ class TestUploadValidation:
 
     async def test_upload_accepts_jpeg(self, client: AsyncClient) -> None:
         resp = await client.post(
-            "/api/generate/organic/upload",
+            "/api/v1/organic/upload",
             files={"file": ("test.jpg", b"fake-jpg-data", "image/jpeg")},
         )
         assert resp.status_code == 200
 
     async def test_upload_accepts_webp(self, client: AsyncClient) -> None:
         resp = await client.post(
-            "/api/generate/organic/upload",
+            "/api/v1/organic/upload",
             files={"file": ("test.webp", b"fake-webp-data", "image/webp")},
         )
         assert resp.status_code == 200
@@ -130,7 +130,7 @@ class TestUploadValidation:
 
 class TestJobStatus:
     async def test_get_nonexistent_job_returns_404(self, client: AsyncClient) -> None:
-        resp = await client.get("/api/generate/organic/no-such-job")
+        resp = await client.get("/api/v1/organic/no-such-job")
         assert resp.status_code == 404
 
     async def test_get_existing_job(self, client: AsyncClient) -> None:
@@ -139,7 +139,7 @@ class TestJobStatus:
             prompt="测试",
             provider="auto",
         )
-        resp = await client.get("/api/generate/organic/test-job-1")
+        resp = await client.get("/api/v1/organic/test-job-1")
         assert resp.status_code == 200
         data = resp.json()
         assert data["job_id"] == "test-job-1"
@@ -156,7 +156,7 @@ class TestProviderHealth:
         with patch("backend.infra.mesh_providers.tripo.TripoProvider.check_health", new_callable=AsyncMock, return_value=False), \
              patch("backend.infra.mesh_providers.hunyuan.HunyuanProvider.check_health", new_callable=AsyncMock, return_value=False):
 
-            resp = await client.get("/api/generate/organic/providers")
+            resp = await client.get("/api/v1/organic/providers")
             assert resp.status_code == 200
             data = resp.json()
             assert "providers" in data
@@ -175,7 +175,7 @@ class TestSSEStream:
         from backend.models.organic import MeshStats
 
         with patch("backend.core.organic_spec_builder.OrganicSpecBuilder.build") as mock_build, \
-             patch("backend.api.organic._create_provider") as mock_create_prov, \
+             patch("backend.api.v1.organic._create_provider") as mock_create_prov, \
              patch("backend.core.mesh_post_processor.MeshPostProcessor") as mock_pp_cls:
 
             # Mock spec builder
@@ -211,7 +211,7 @@ class TestSSEStream:
             mock_pp_cls.return_value = mock_pp
 
             resp = await client.post(
-                "/api/generate/organic",
+                "/api/v1/organic",
                 json={"prompt": "高尔夫球头"},
             )
             assert resp.status_code == 200
@@ -223,7 +223,7 @@ class TestSSEStream:
         from backend.models.organic import MeshStats
 
         with patch("backend.core.organic_spec_builder.OrganicSpecBuilder.build") as mock_build, \
-             patch("backend.api.organic._create_provider") as mock_create_prov, \
+             patch("backend.api.v1.organic._create_provider") as mock_create_prov, \
              patch("backend.core.mesh_post_processor.MeshPostProcessor") as mock_pp_cls:
 
             mock_spec = MagicMock()
@@ -255,7 +255,7 @@ class TestSSEStream:
             mock_pp_cls.return_value = mock_pp
 
             resp = await client.post(
-                "/api/generate/organic",
+                "/api/v1/organic",
                 json={"prompt": "测试对象"},
             )
             lines = resp.text.strip().split("\n")
@@ -272,7 +272,7 @@ class TestSSEStream:
     async def test_empty_prompt_without_image_returns_422(self, client: AsyncClient) -> None:
         """Empty prompt and no reference_image should be rejected."""
         resp = await client.post(
-            "/api/generate/organic",
+            "/api/v1/organic",
             json={"prompt": ""},
         )
         assert resp.status_code == 422
@@ -282,7 +282,7 @@ class TestSSEStream:
         from backend.models.organic import MeshStats
 
         with patch("backend.core.organic_spec_builder.OrganicSpecBuilder.build") as mock_build, \
-             patch("backend.api.organic._create_provider") as mock_create_prov, \
+             patch("backend.api.v1.organic._create_provider") as mock_create_prov, \
              patch("backend.core.mesh_post_processor.MeshPostProcessor") as mock_pp_cls:
 
             mock_spec = MagicMock()
@@ -318,7 +318,7 @@ class TestSSEStream:
             mock_pp_cls.return_value = mock_pp
 
             resp = await client.post(
-                "/api/generate/organic",
+                "/api/v1/organic",
                 json={"prompt": "测试3MF导出"},
             )
             lines = resp.text.strip().split("\n")
@@ -342,7 +342,7 @@ class TestSSEStream:
         from backend.models.organic import MeshStats
 
         with patch("backend.core.organic_spec_builder.OrganicSpecBuilder.build") as mock_build, \
-             patch("backend.api.organic._create_provider") as mock_create_prov, \
+             patch("backend.api.v1.organic._create_provider") as mock_create_prov, \
              patch("backend.core.mesh_post_processor.MeshPostProcessor") as mock_pp_cls, \
              patch("backend.core.geometry_extractor.extract_geometry_from_mesh") as mock_extract, \
              patch("backend.core.printability.PrintabilityChecker") as mock_checker_cls:
@@ -402,7 +402,7 @@ class TestSSEStream:
             mock_checker_cls.return_value = mock_checker
 
             resp = await client.post(
-                "/api/generate/organic",
+                "/api/v1/organic",
                 json={"prompt": "测试可打印性"},
             )
             lines = resp.text.strip().split("\n")
@@ -428,7 +428,7 @@ class TestSSEStream:
         from backend.models.organic import MeshStats
 
         with patch("backend.core.organic_spec_builder.OrganicSpecBuilder.build") as mock_build, \
-             patch("backend.api.organic._create_provider") as mock_create_prov, \
+             patch("backend.api.v1.organic._create_provider") as mock_create_prov, \
              patch("backend.core.mesh_post_processor.MeshPostProcessor") as mock_pp_cls, \
              patch(
                  "backend.core.geometry_extractor.extract_geometry_from_mesh",
@@ -463,7 +463,7 @@ class TestSSEStream:
             mock_pp_cls.return_value = mock_pp
 
             resp = await client.post(
-                "/api/generate/organic",
+                "/api/v1/organic",
                 json={"prompt": "测试容错"},
             )
             lines = resp.text.strip().split("\n")
@@ -484,7 +484,7 @@ class TestSSEStream:
     async def test_empty_prompt_with_image_is_accepted(self, client: AsyncClient) -> None:
         """Empty prompt with a reference_image should pass validation (422 only if image not found)."""
         resp = await client.post(
-            "/api/generate/organic",
+            "/api/v1/organic",
             json={"prompt": "", "reference_image": "00000000-0000-0000-0000-000000000000"},
         )
         # Should NOT be 422 for "prompt required" — it may fail later (image not found) but passes input validation
@@ -499,7 +499,7 @@ class TestPathTraversal:
     async def test_read_uploaded_image_rejects_path_traversal(self, client: AsyncClient) -> None:
         """file_id with path traversal characters should be rejected via SSE error."""
         resp = await client.post(
-            "/api/generate/organic",
+            "/api/v1/organic",
             json={"prompt": "test", "reference_image": "../../../etc/passwd"},
         )
         # Endpoint returns 200 SSE stream; validation error appears as failed event
@@ -510,7 +510,7 @@ class TestPathTraversal:
     async def test_read_uploaded_image_rejects_non_uuid(self, client: AsyncClient) -> None:
         """Non-UUID file_id should be rejected via SSE error event."""
         resp = await client.post(
-            "/api/generate/organic",
+            "/api/v1/organic",
             json={"prompt": "test", "reference_image": "not-a-uuid"},
         )
         assert resp.status_code == 200
@@ -520,7 +520,7 @@ class TestPathTraversal:
     async def test_read_uploaded_image_accepts_valid_uuid(self, client: AsyncClient) -> None:
         """Valid UUID file_id that doesn't exist should get 404, not crash."""
         resp = await client.post(
-            "/api/generate/organic",
+            "/api/v1/organic",
             json={"prompt": "test", "reference_image": "11111111-1111-1111-1111-111111111111"},
         )
         # Should be 404 (not found) or SSE with failed event — not 422 or 500

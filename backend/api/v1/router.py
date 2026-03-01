@@ -10,6 +10,7 @@ from backend.api.v1 import (
     export,
     health,
     jobs,
+    organic,
     pipeline_config,
     preview,
     print_config,
@@ -30,3 +31,4 @@ router.include_router(benchmark.router)
 router.include_router(standards.router)
 router.include_router(print_config.router)
 router.include_router(templates.router)
+router.include_router(organic.router)

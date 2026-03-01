@@ -1,0 +1,519 @@
+"""Organic (text->3D mesh) generation API — /api/v1/organic.
+
+Architecture note: This module uses an independent OrganicJob state machine
+(backend/models/organic_job.py), separate from the V1 Job model's
+input_type="organic" path. The two coexist; merging the state machines
+is a future architectural refactor outside the scope of V1 API migration.
+
+POST /api/v1/organic           (SSE generation)
+POST /api/v1/organic/upload    (reference image upload)
+GET  /api/v1/organic/providers (provider status)
+GET  /api/v1/organic/{job_id}  (job status query)
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import uuid
+from pathlib import Path
+from typing import Any, AsyncGenerator
+
+from fastapi import APIRouter, Depends, File, UploadFile
+from loguru import logger
+from sse_starlette.sse import EventSourceResponse
+
+from backend.api.v1.errors import APIError, ErrorCode
+from backend.config import Settings
+from backend.models.organic import OrganicGenerateRequest, OrganicJobResult
+from backend.models.organic_job import (
+    OrganicJobStatus,
+    create_organic_job,
+    get_organic_job,
+    update_organic_job,
+)
+
+router = APIRouter(prefix="/organic", tags=["organic"])
+
+_ALLOWED_MIME_TYPES = {"image/png", "image/jpeg", "image/webp"}
+_MIME_TO_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+
+
+def _ext_from_mime(content_type: str | None) -> str:
+    """Derive file extension from MIME type. Falls back to '.png'."""
+    return _MIME_TO_EXT.get(content_type or "", ".png")
+
+
+# ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
+
+
+def _get_settings() -> Settings:
+    return Settings()
+
+
+def _require_organic_enabled(settings: Settings = Depends(_get_settings)) -> Settings:
+    """Feature gate: raise APIError if organic engine is disabled."""
+    if not settings.organic_enabled:
+        raise APIError(
+            status_code=503,
+            code=ErrorCode.ORGANIC_DISABLED,
+            message="Organic engine is disabled. Set ORGANIC_ENABLED=true to enable.",
+        )
+    return settings
+
+
+# ---------------------------------------------------------------------------
+# SSE helpers
+# ---------------------------------------------------------------------------
+
+
+def _sse_event(
+    job_id: str,
+    status: str,
+    message: str,
+    progress: float,
+    **extra: Any,
+) -> dict[str, str]:
+    """Create a standard SSE envelope."""
+    data = {
+        "job_id": job_id,
+        "status": status,
+        "message": message,
+        "progress": progress,
+        **extra,
+    }
+    return {"event": "organic", "data": json.dumps(data, ensure_ascii=False)}
+
+
+# ---------------------------------------------------------------------------
+# Text-mode SSE endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.post("")
+async def generate_organic(
+    request: OrganicGenerateRequest,
+    settings: Settings = Depends(_require_organic_enabled),
+) -> EventSourceResponse:
+    """Generate organic 3D model from text and/or image via SSE stream."""
+    if not request.prompt.strip() and not request.reference_image:
+        raise APIError(
+            status_code=422,
+            code=ErrorCode.VALIDATION_FAILED,
+            message="At least one of prompt or reference_image must be provided.",
+        )
+    job_id = str(uuid.uuid4())
+    await create_organic_job(
+        job_id=job_id,
+        prompt=request.prompt,
+        provider=request.provider,
+        quality_mode=request.quality_mode,
+    )
+
+    async def event_stream() -> AsyncGenerator[dict[str, str], None]:
+        try:
+            # Stage 1: Analyze prompt
+            await update_organic_job(job_id, status=OrganicJobStatus.ANALYZING, progress=0.05)
+            yield _sse_event(job_id, "analyzing", "Analyzing prompt...", 0.05)
+
+            from backend.core.organic_spec_builder import OrganicSpecBuilder
+
+            builder = OrganicSpecBuilder()
+            spec = await builder.build(request)
+            await update_organic_job(job_id, progress=0.15)
+            yield _sse_event(job_id, "analyzing", "Spec built", 0.15)
+
+            # Stage 2: Generate mesh
+            await update_organic_job(
+                job_id, status=OrganicJobStatus.GENERATING, progress=0.2
+            )
+            yield _sse_event(job_id, "generating", "Generating 3D mesh...", 0.2)
+
+            provider = _create_provider(request.provider, settings)
+            upload_result = await _read_uploaded_image(request.reference_image)
+            reference_image_bytes = upload_result[0] if upload_result else None
+            raw_mesh_path = await provider.generate(
+                spec,
+                reference_image=reference_image_bytes,
+                on_progress=lambda msg, p: None,
+            )
+            await update_organic_job(job_id, progress=0.6)
+            yield _sse_event(job_id, "generating", "Mesh generated", 0.6)
+
+            # Stage 3: Post-process (step-by-step with SSE events)
+            await update_organic_job(
+                job_id, status=OrganicJobStatus.POST_PROCESSING, progress=0.65
+            )
+            yield _sse_event(
+                job_id, "post_processing", "开始后处理...", 0.65,
+                step="load", step_status="running",
+            )
+
+            from backend.core.mesh_post_processor import MeshPostProcessor
+
+            processor = MeshPostProcessor()
+            pp_warnings: list[str] = []
+
+            # Step 3a: Load mesh
+            mesh = processor.load_mesh(raw_mesh_path)
+            yield _sse_event(
+                job_id, "post_processing", "网格加载完成", 0.68,
+                step="load", step_status="success",
+            )
+
+            # Step 3b: Repair mesh
+            yield _sse_event(
+                job_id, "post_processing", "正在修复网格...", 0.68,
+                step="repair", step_status="running",
+            )
+            mesh, repair_info = processor.repair_mesh(mesh)
+            if repair_info.status == "degraded":
+                pp_warnings.append(repair_info.message)
+            yield _sse_event(
+                job_id, "post_processing", repair_info.message, 0.73,
+                step="repair", step_status=repair_info.status,
+            )
+
+            # Step 3c: Scale mesh
+            if spec.final_bounding_box:
+                yield _sse_event(
+                    job_id, "post_processing", "正在缩放网格...", 0.73,
+                    step="scale", step_status="running",
+                )
+                mesh = processor.scale_mesh(mesh, spec.final_bounding_box)
+                yield _sse_event(
+                    job_id, "post_processing", "缩放完成", 0.78,
+                    step="scale", step_status="success",
+                )
+            else:
+                yield _sse_event(
+                    job_id, "post_processing", "无需缩放", 0.78,
+                    step="scale", step_status="skipped",
+                )
+
+            # Step 3d: Boolean cuts
+            boolean_cuts_applied = 0
+            if spec.quality_mode != "draft" and spec.engineering_cuts:
+                yield _sse_event(
+                    job_id, "post_processing", "正在应用布尔切割...", 0.78,
+                    step="boolean", step_status="running",
+                )
+                try:
+                    mesh, boolean_cuts_applied, cut_warnings = (
+                        processor.apply_boolean_cuts(mesh, spec.engineering_cuts)
+                    )
+                    pp_warnings.extend(cut_warnings)
+                    total = len(spec.engineering_cuts)
+                    if cut_warnings:
+                        msg = f"应用了 {boolean_cuts_applied}/{total} 个切割"
+                        yield _sse_event(
+                            job_id, "post_processing", msg, 0.85,
+                            step="boolean", step_status="degraded",
+                        )
+                    else:
+                        msg = f"应用了 {boolean_cuts_applied} 个切割"
+                        yield _sse_event(
+                            job_id, "post_processing", msg, 0.85,
+                            step="boolean", step_status="success",
+                        )
+                except Exception as e:
+                    msg = f"布尔切割失败: {e}"
+                    logger.warning(msg)
+                    pp_warnings.append(msg)
+                    yield _sse_event(
+                        job_id, "post_processing", msg, 0.85,
+                        step="boolean", step_status="failed",
+                    )
+            else:
+                reason = "草稿模式跳过" if spec.quality_mode == "draft" else "无切割定义"
+                yield _sse_event(
+                    job_id, "post_processing", reason, 0.85,
+                    step="boolean", step_status="skipped",
+                )
+
+            # Step 3e: Validate
+            yield _sse_event(
+                job_id, "post_processing", "正在验证质量...", 0.85,
+                step="validate", step_status="running",
+            )
+            stats = processor.validate_mesh(mesh, boolean_cuts_applied)
+            await update_organic_job(job_id, progress=0.9)
+            yield _sse_event(
+                job_id, "post_processing", "质量验证完成", 0.9,
+                step="validate", step_status="success",
+            )
+
+            # Build processed result for export
+            from backend.core.mesh_post_processor import ProcessedMeshResult
+
+            processed = ProcessedMeshResult(
+                mesh=mesh, stats=stats, warnings=pp_warnings,
+            )
+
+            # Stage 4: Export & finalize
+            output_dir = Path("outputs") / "organic" / job_id
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            glb_path = output_dir / "model.glb"
+            stl_path = output_dir / "model.stl"
+            processed.mesh.export(str(glb_path))
+            processed.mesh.export(str(stl_path))
+
+            # 3MF export with metadata
+            threemf_url: str | None = None
+            try:
+                threemf_path = output_dir / "model.3mf"
+                processed.mesh.export(str(threemf_path), file_type="3mf")
+                threemf_url = f"/outputs/organic/{job_id}/model.3mf"
+            except Exception as e:
+                logger.warning(f"3MF export failed: {e}")
+
+            # Printability check on exported mesh
+            printability_data = None
+            try:
+                from backend.core.geometry_extractor import (
+                    extract_geometry_from_mesh,
+                )
+                from backend.core.printability import PrintabilityChecker
+
+                mesh_path = str(stl_path) if stl_path.exists() else str(glb_path)
+                geometry_info = extract_geometry_from_mesh(mesh_path)
+                checker = PrintabilityChecker()
+                pr = checker.check(geometry_info)
+                mat = checker.estimate_material(geometry_info)
+                time_est = checker.estimate_print_time(geometry_info)
+                printability_data = pr.model_dump()
+                printability_data["material_estimate"] = {
+                    "filament_weight_g": mat.filament_weight_g,
+                    "filament_length_m": mat.filament_length_m,
+                    "cost_estimate_cny": mat.cost_estimate_cny,
+                }
+                printability_data["time_estimate"] = {
+                    "total_minutes": time_est.total_minutes,
+                    "layer_count": time_est.layer_count,
+                }
+            except Exception as e:
+                logger.warning(f"Organic printability check failed: {e}")
+
+            result = OrganicJobResult(
+                job_id=job_id,
+                model_url=f"/outputs/organic/{job_id}/model.glb",
+                stl_url=f"/outputs/organic/{job_id}/model.stl",
+                threemf_url=threemf_url,
+                mesh_stats=processed.stats,
+                provider_used=request.provider,
+                generation_time_s=0.0,
+                post_processing_time_s=0.0,
+            )
+            await update_organic_job(
+                job_id,
+                status=OrganicJobStatus.COMPLETED,
+                progress=1.0,
+                result=result,
+                printability_result=printability_data,
+            )
+            result_data = result.model_dump()
+            yield _sse_event(
+                job_id,
+                "completed",
+                "Generation complete",
+                1.0,
+                model_url=result_data.get("model_url"),
+                stl_url=result_data.get("stl_url"),
+                threemf_url=result_data.get("threemf_url"),
+                mesh_stats=result_data.get("mesh_stats"),
+                warnings=processed.warnings,
+                printability=printability_data,
+            )
+
+        except Exception as e:
+            await update_organic_job(
+                job_id,
+                status=OrganicJobStatus.FAILED,
+                error=str(e),
+            )
+            yield _sse_event(job_id, "failed", str(e), 0.0)
+
+    return EventSourceResponse(event_stream())
+
+
+# ---------------------------------------------------------------------------
+# Image upload endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.post("/upload")
+async def generate_organic_upload(
+    file: UploadFile = File(...),
+    settings: Settings = Depends(_require_organic_enabled),
+) -> dict[str, Any]:
+    """Upload a reference image for organic generation."""
+    # Validate MIME type
+    if file.content_type not in _ALLOWED_MIME_TYPES:
+        raise APIError(
+            status_code=422,
+            code=ErrorCode.VALIDATION_FAILED,
+            message=f"Unsupported file type: {file.content_type}. Allowed: {', '.join(sorted(_ALLOWED_MIME_TYPES))}",
+        )
+
+    # Validate file size
+    max_bytes = settings.organic_upload_max_mb * 1024 * 1024
+    content = await file.read()
+    if len(content) > max_bytes:
+        raise APIError(
+            status_code=422,
+            code=ErrorCode.VALIDATION_FAILED,
+            message=f"File too large: {len(content)} bytes. Maximum: {max_bytes} bytes ({settings.organic_upload_max_mb}MB)",
+        )
+
+    # Save to temp location
+    upload_dir = Path("outputs") / "organic" / "uploads"
+    file_id = str(uuid.uuid4())
+    ext = Path(file.filename or "image.png").suffix or _ext_from_mime(file.content_type)
+    save_path = upload_dir / f"{file_id}{ext}"
+
+    def _write_upload() -> None:
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        save_path.write_bytes(content)
+
+    await asyncio.to_thread(_write_upload)
+
+    return {"file_id": file_id, "filename": file.filename or "", "size": len(content)}
+
+
+# ---------------------------------------------------------------------------
+# Provider health check (MUST be before /{job_id} to avoid route conflict)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/providers")
+async def get_provider_health(
+    settings: Settings = Depends(_require_organic_enabled),
+) -> dict[str, Any]:
+    """Check health of available mesh generation providers."""
+    from backend.infra.mesh_providers import HunyuanProvider, TripoProvider
+
+    output_dir = Path("outputs") / "organic"
+    tripo = TripoProvider(api_key=settings.tripo3d_api_key, output_dir=output_dir)
+    hunyuan = HunyuanProvider(api_key=settings.hunyuan3d_api_key, output_dir=output_dir)
+
+    tripo_ok, hunyuan_ok = await asyncio.gather(
+        tripo.check_health(),
+        hunyuan.check_health(),
+    )
+
+    return {
+        "providers": {
+            "tripo3d": {
+                "available": tripo_ok,
+                "configured": bool(settings.tripo3d_api_key),
+            },
+            "hunyuan3d": {
+                "available": hunyuan_ok,
+                "configured": bool(settings.hunyuan3d_api_key),
+            },
+        },
+        "default_provider": settings.organic_default_provider,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Job status query
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{job_id}")
+async def get_organic_job_status(
+    job_id: str,
+    settings: Settings = Depends(_require_organic_enabled),
+) -> dict[str, Any]:
+    """Get the status of an organic generation job."""
+    job = await get_organic_job(job_id)
+    if job is None:
+        raise APIError(
+            status_code=404,
+            code=ErrorCode.ORGANIC_JOB_NOT_FOUND,
+            message=f"Job {job_id} not found",
+        )
+
+    response: dict[str, Any] = {
+        "job_id": job.job_id,
+        "status": job.status.value,
+        "progress": job.progress,
+        "message": job.message,
+        "created_at": job.created_at,
+    }
+    if job.result:
+        response["result"] = job.result.model_dump()
+    if job.error:
+        response["error"] = job.error
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Image upload helper
+# ---------------------------------------------------------------------------
+
+
+async def _read_uploaded_image(file_id: str | None) -> tuple[bytes, str] | None:
+    """Read previously uploaded image bytes by file_id.
+
+    Returns (bytes, extension) or None if file_id is empty.
+    Raises APIError if file_id is invalid or file not found.
+    """
+    if not file_id:
+        return None
+    # Validate file_id is a UUID to prevent path traversal
+    try:
+        uuid.UUID(file_id)
+    except ValueError:
+        raise APIError(
+            status_code=422,
+            code=ErrorCode.VALIDATION_FAILED,
+            message=f"Invalid file_id: {file_id}",
+        ) from None
+    upload_dir = Path("outputs") / "organic" / "uploads"
+    matches = list(upload_dir.glob(f"{file_id}.*"))
+    if not matches:
+        raise APIError(
+            status_code=404,
+            code=ErrorCode.FILE_NOT_FOUND,
+            message=f"Uploaded image {file_id} not found. Please re-upload.",
+        )
+    ext = matches[0].suffix.lstrip(".")  # e.g. "png", "jpg", "webp"
+    image_bytes = await asyncio.to_thread(matches[0].read_bytes)
+    return image_bytes, ext
+
+
+# ---------------------------------------------------------------------------
+# Provider factory (module-level for mockability)
+# ---------------------------------------------------------------------------
+
+
+def _create_provider(
+    provider_name: str,
+    settings: Settings,
+) -> Any:
+    """Create a MeshProvider instance based on the provider name."""
+    from backend.infra.mesh_providers import (
+        AutoProvider,
+        HunyuanProvider,
+        TripoProvider,
+    )
+
+    output_dir = Path("outputs") / "organic"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    tripo = TripoProvider(api_key=settings.tripo3d_api_key, output_dir=output_dir)
+    hunyuan = HunyuanProvider(
+        api_key=settings.hunyuan3d_api_key, output_dir=output_dir
+    )
+
+    if provider_name == "tripo3d":
+        return tripo
+    elif provider_name == "hunyuan3d":
+        return hunyuan
+    else:  # "auto"
+        return AutoProvider(tripo=tripo, hunyuan=hunyuan)

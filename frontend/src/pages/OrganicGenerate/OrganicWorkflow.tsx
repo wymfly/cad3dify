@@ -200,7 +200,7 @@ export function useOrganicWorkflow() {
         const formData = new FormData();
         formData.append('file', opts.imageFile!);
 
-        const uploadResp = await fetch('/api/generate/organic/upload', {
+        const uploadResp = await fetch('/api/v1/organic/upload', {
           method: 'POST',
           body: formData,
           signal: abort.signal,
@@ -224,7 +224,7 @@ export function useOrganicWorkflow() {
       };
       if (fileId) body.reference_image = fileId;
 
-      const resp = await fetch('/api/generate/organic', {
+      const resp = await fetch('/api/v1/organic', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

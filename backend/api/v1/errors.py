@@ -32,6 +32,8 @@ class ErrorCode:
     REPORT_NOT_FOUND = "REPORT_NOT_FOUND"
     TEMPLATE_NOT_FOUND = "TEMPLATE_NOT_FOUND"
     TEMPLATE_EXISTS = "TEMPLATE_EXISTS"
+    ORGANIC_DISABLED = "ORGANIC_DISABLED"
+    ORGANIC_JOB_NOT_FOUND = "ORGANIC_JOB_NOT_FOUND"
 
 
 # ---------------------------------------------------------------------------
