@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
 
-app = FastAPI(title="cad3dify", version="3.0.0", lifespan=lifespan)
+app = FastAPI(title="cadpilot", version="3.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

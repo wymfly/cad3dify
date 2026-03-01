@@ -59,7 +59,7 @@ class TestThemeAndAppHealth:
         resp = client.get("/openapi.json")
         assert resp.status_code == 200
         schema = resp.json()
-        assert schema["info"]["title"] == "cad3dify"
+        assert schema["info"]["title"] == "cadpilot"
         assert schema["info"]["version"] == "3.0.0"
         # 验证 V1 路径已注册
         paths = list(schema["paths"].keys())

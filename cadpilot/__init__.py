@@ -1,7 +1,7 @@
-"""cad3dify — compatibility shim.
+"""cadpilot — compatibility shim.
 
 Imports public API from the new backend package layout.
-Original modules remain in cad3dify/ for backward compatibility;
+Original modules remain in cadpilot/ for backward compatibility;
 new code should import from backend.* directly.
 """
 from backend.v1.cad_code_refiner import CadCodeRefinerChain

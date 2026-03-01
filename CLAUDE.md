@@ -1,6 +1,6 @@
-# CAD3Dify
+# CADPilot
 
-> AI 驱动的 2D 工程图纸 → 3D CAD 模型生成工具，目标演进为自然语言到工业级 3D 打印文件平台。
+> AI 驱动的自然语言/工程图纸 → 工业级 3D CAD 模型生成平台。
 
 ## 语言
 
@@ -77,7 +77,7 @@ V3 设计文档：`openspec/changes/2026-02-26-v3-text-to-printable/`
 ## 项目结构
 
 ```
-cad3dify/                    # 核心库
+cadpilot/                    # 核心库
 ├── __init__.py              # 公共 API：generate_step_v2, generate_step_from_2d_cad_image
 ├── pipeline.py              # V1/V2 管道主函数
 ├── agents.py                # ReAct 代码执行代理

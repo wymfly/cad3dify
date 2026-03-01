@@ -1,6 +1,6 @@
 """Test configuration.
 
-The top-level ``cad3dify/__init__.py`` imports v1 chains that depend on
+The top-level ``cadpilot/__init__.py`` imports v1 chains that depend on
 ``langchain``, ``cadquery``, and other heavy packages that are not
 installed in the lightweight test environment.
 

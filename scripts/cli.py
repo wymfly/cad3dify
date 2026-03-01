@@ -1,4 +1,4 @@
-from cad3dify import generate_step_from_2d_cad_image
+from cadpilot import generate_step_from_2d_cad_image
 
 
 def main():

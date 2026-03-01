@@ -1,11 +1,11 @@
 """Compatibility tests: ensure public API is importable from both old and new paths."""
 
 
-def test_cad3dify_public_api_importable():
-    """cad3dify 公共 API 仍可通过旧路径导入"""
-    from cad3dify import generate_step_v2
-    from cad3dify import generate_step_from_2d_cad_image
-    from cad3dify import ImageData
+def test_cadpilot_public_api_importable():
+    """cadpilot 公共 API 仍可通过旧路径导入"""
+    from cadpilot import generate_step_v2
+    from cadpilot import generate_step_from_2d_cad_image
+    from cadpilot import ImageData
 
     assert callable(generate_step_v2)
     assert callable(generate_step_from_2d_cad_image)

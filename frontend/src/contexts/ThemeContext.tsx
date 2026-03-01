@@ -19,7 +19,7 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-const STORAGE_KEY = 'cad3dify-theme';
+const STORAGE_KEY = 'cadpilot-theme';
 
 function getInitialTheme(): ThemeMode {
   try {

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Input, Upload, message, Typography } from 'antd';
-import { InboxOutlined, DeleteOutlined } from '@ant-design/icons';
+import { InboxOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd';
 
 const { TextArea } = Input;

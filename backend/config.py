@@ -6,9 +6,9 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    """CAD3Dify application configuration."""
+    """CADPilot application configuration."""
 
-    app_name: str = "cad3dify"
+    app_name: str = "cadpilot"
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8780

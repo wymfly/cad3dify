@@ -8,8 +8,8 @@ import { useTheme } from '../contexts/ThemeContext.tsx';
 const LEFT_WIDTH = 240;
 const RIGHT_WIDTH = 300;
 const MOBILE_BREAKPOINT = 768;
-const STORAGE_KEY_LEFT = 'cad3dify-panel-left';
-const STORAGE_KEY_RIGHT = 'cad3dify-panel-right';
+const STORAGE_KEY_LEFT = 'cadpilot-panel-left';
+const STORAGE_KEY_RIGHT = 'cadpilot-panel-right';
 
 function getStoredCollapsed(key: string): boolean {
   try {

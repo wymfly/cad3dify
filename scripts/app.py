@@ -7,7 +7,7 @@ from PIL import Image
 from dotenv import load_dotenv
 
 load_dotenv()
-from cad3dify import generate_step_from_2d_cad_image, generate_step_v2
+from cadpilot import generate_step_from_2d_cad_image, generate_step_v2
 
 
 def parse_args():

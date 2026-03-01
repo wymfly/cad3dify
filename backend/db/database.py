@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase
 
-DB_PATH = Path(__file__).parent.parent / "data" / "cad3dify.db"
+DB_PATH = Path(__file__).parent.parent / "data" / "cadpilot.db"
 DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH}"
 
 
