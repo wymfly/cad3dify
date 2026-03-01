@@ -50,7 +50,9 @@ def get_model_for_role(role: str) -> ChatModelParameters:
     if role_config is None:
         raise ValueError(f"Unknown LLM role: {role}")
     model_name = overrides.get(role, role_config.default_model)
-    return ChatModelParameters.from_model_name(model_name)
+    return ChatModelParameters.from_model_name(
+        model_name, temperature=role_config.default_temp
+    )
 
 
 def get_current_config() -> dict[str, dict]:
