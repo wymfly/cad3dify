@@ -150,7 +150,7 @@ async def preview_parametric(body: PreviewRequest) -> PreviewResponse:
     if template is None:
         raise APIError(
             status_code=404,
-            code=ErrorCode.JOB_NOT_FOUND,
+            code=ErrorCode.TEMPLATE_NOT_FOUND,
             message=f"Template '{body.template_name}' not found",
         )
 
@@ -191,6 +191,12 @@ async def preview_parametric(body: PreviewRequest) -> PreviewResponse:
             status_code=500,
             code=ErrorCode.INTERNAL_ERROR,
             message=str(exc),
+        )
+    except Exception as exc:
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.INTERNAL_ERROR,
+            message=f"Preview rendering failed: {exc}",
         )
 
     # 5. Move GLB to outputs directory and return URL
