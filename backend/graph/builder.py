@@ -31,6 +31,7 @@ from backend.graph.nodes.postprocess import (
     check_printability_node,
     convert_preview_node,
 )
+from backend.graph.interceptors import default_registry
 from backend.graph.routing import route_after_confirm, route_by_input_type
 from backend.graph.state import CadJobState
 
@@ -52,6 +53,9 @@ def _build_workflow() -> StateGraph:
     workflow.add_node("convert_preview", convert_preview_node)
     workflow.add_node("check_printability", check_printability_node)
     workflow.add_node("finalize", finalize_node)
+
+    # Apply registered interceptors
+    default_registry.apply(workflow)
 
     # ── Edges ──
     workflow.add_edge(START, "create_job")
@@ -81,7 +85,19 @@ def _build_workflow() -> StateGraph:
     workflow.add_edge("generate_step_drawing", "convert_preview")
     workflow.add_edge("generate_organic_mesh", "postprocess_organic")
     workflow.add_edge("postprocess_organic", "finalize")
-    workflow.add_edge("convert_preview", "check_printability")
+    # Wire convert_preview → [interceptors] → check_printability
+    interceptors = default_registry.list_interceptors()
+    post_convert_chain = [i["name"] for i in interceptors if i["after"] == "convert_preview"]
+
+    if post_convert_chain:
+        prev = "convert_preview"
+        for node_name in post_convert_chain:
+            workflow.add_edge(prev, node_name)
+            prev = node_name
+        workflow.add_edge(prev, "check_printability")
+    else:
+        workflow.add_edge("convert_preview", "check_printability")
+
     workflow.add_edge("check_printability", "finalize")
     workflow.add_edge("finalize", END)
 
