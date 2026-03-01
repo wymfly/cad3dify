@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-import backend.api.standards as std_api
+import backend.api.v1.standards as std_api
 
 
 # ---------------------------------------------------------------------------

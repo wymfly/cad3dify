@@ -294,7 +294,7 @@ class TestRAGPipeline:
 
 class TestRAGAPI:
     def test_search_endpoint(self) -> None:
-        from backend.api import rag as rag_api
+        from backend.api.v1 import rag as rag_api
 
         # Reset singleton for clean test.
         # Note: must pass part_type=None explicitly because when called
@@ -307,7 +307,7 @@ class TestRAGAPI:
         assert len(result) <= 3
 
     def test_search_endpoint_returns_results(self) -> None:
-        from backend.api import rag as rag_api
+        from backend.api.v1 import rag as rag_api
 
         rag_api._pipeline = None
         result = asyncio.run(
@@ -318,7 +318,7 @@ class TestRAGAPI:
         assert result[0].code
 
     def test_search_with_part_type_filter(self) -> None:
-        from backend.api import rag as rag_api
+        from backend.api.v1 import rag as rag_api
 
         rag_api._pipeline = None
         result = asyncio.run(
@@ -328,7 +328,7 @@ class TestRAGAPI:
             assert r.part_type == "rotational"
 
     def test_stats_endpoint(self) -> None:
-        from backend.api import rag as rag_api
+        from backend.api.v1 import rag as rag_api
 
         rag_api._pipeline = None
         result = asyncio.run(rag_api.rag_stats())

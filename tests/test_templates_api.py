@@ -18,9 +18,9 @@ import asyncio
 import textwrap
 
 import pytest
-from fastapi import HTTPException
 
-import backend.api.templates as tmpl_api
+import backend.api.v1.templates as tmpl_api
+from backend.api.v1.errors import APIError
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +88,7 @@ class TestGetTemplate:
         assert "params" in result
 
     def test_get_not_found(self) -> None:
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             asyncio.run(tmpl_api.get_template("nonexistent"))
         assert exc_info.value.status_code == 404
 
@@ -133,7 +133,7 @@ class TestCreateTemplate:
             "part_type": "rotational",
             "code_template": "...",
         }
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             asyncio.run(tmpl_api.create_template(dup))
         assert exc_info.value.status_code == 409
 
@@ -173,7 +173,7 @@ class TestUpdateTemplate:
             "part_type": "general",
             "code_template": "...",
         }
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             asyncio.run(tmpl_api.update_template("ghost", body))
         assert exc_info.value.status_code == 404
 
@@ -189,12 +189,12 @@ class TestDeleteTemplate:
         assert result["status"] == "deleted"
 
         # Verify it's gone.
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             asyncio.run(tmpl_api.get_template("test_disk"))
         assert exc_info.value.status_code == 404
 
     def test_delete_not_found(self) -> None:
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             asyncio.run(tmpl_api.delete_template("nonexistent"))
         assert exc_info.value.status_code == 404
 
@@ -220,6 +220,6 @@ class TestValidateParams:
         assert len(result.errors) > 0
 
     def test_validate_not_found(self) -> None:
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             asyncio.run(tmpl_api.validate_params("nonexistent", {}))
         assert exc_info.value.status_code == 404

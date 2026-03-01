@@ -9,9 +9,9 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from fastapi import HTTPException
 
-import backend.api.print_config as pc_api
+import backend.api.v1.print_config as pc_api
+from backend.api.v1.errors import APIError
 from backend.core.printability import PRESET_PROFILES
 
 
@@ -64,7 +64,7 @@ class TestGetProfile:
         assert result["technology"] == "FDM"
 
     def test_get_not_found(self) -> None:
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             asyncio.run(pc_api.get_profile("nonexistent"))
         assert exc_info.value.status_code == 404
 
@@ -98,14 +98,14 @@ class TestCreateProfile:
 
     def test_create_duplicate_fails(self) -> None:
         asyncio.run(pc_api.create_profile(CUSTOM_PROFILE.copy()))
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             asyncio.run(pc_api.create_profile(CUSTOM_PROFILE.copy()))
         assert exc_info.value.status_code == 409
 
     def test_create_preset_name_blocked(self) -> None:
         body = CUSTOM_PROFILE.copy()
         body["name"] = "fdm_standard"
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             asyncio.run(pc_api.create_profile(body))
         assert exc_info.value.status_code == 409
 
@@ -130,14 +130,14 @@ class TestUpdateProfile:
         assert result["min_wall_thickness"] == 1.2
 
     def test_update_preset_blocked(self) -> None:
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             asyncio.run(
                 pc_api.update_profile("fdm_standard", CUSTOM_PROFILE.copy())
             )
         assert exc_info.value.status_code == 403
 
     def test_update_not_found(self) -> None:
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             asyncio.run(
                 pc_api.update_profile("ghost", CUSTOM_PROFILE.copy())
             )
@@ -156,16 +156,16 @@ class TestDeleteProfile:
         assert result["status"] == "deleted"
 
         # Verify gone
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             asyncio.run(pc_api.get_profile("my_fdm"))
         assert exc_info.value.status_code == 404
 
     def test_delete_preset_blocked(self) -> None:
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             asyncio.run(pc_api.delete_profile("fdm_standard"))
         assert exc_info.value.status_code == 403
 
     def test_delete_not_found(self) -> None:
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             asyncio.run(pc_api.delete_profile("nonexistent"))
         assert exc_info.value.status_code == 404
