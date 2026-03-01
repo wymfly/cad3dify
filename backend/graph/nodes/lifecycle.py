@@ -98,6 +98,9 @@ async def finalize_node(state: CadJobState) -> dict[str, Any]:
             "printability": organic_result.get("printability"),
         })
 
+    if state.get("recommendations"):
+        result_dict["recommendations"] = state["recommendations"]
+
     # Include token stats in result (recalculate aggregates from stages)
     token_stats = state.get("token_stats")
     if token_stats:
@@ -121,6 +124,7 @@ async def finalize_node(state: CadJobState) -> dict[str, Any]:
         payload["model_url"] = state.get("model_url")
         payload["step_path"] = state.get("step_path")
         payload["printability"] = state.get("printability")
+        payload["recommendations"] = state.get("recommendations")
         if input_type == "organic":
             organic_result = state.get("organic_result") or {}
             payload.update({

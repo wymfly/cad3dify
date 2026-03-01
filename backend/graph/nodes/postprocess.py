@@ -66,9 +66,22 @@ async def check_printability_node(state: CadJobState) -> dict[str, Any]:
         logger.warning("Printability check failed (non-fatal): %s", exc)
         return {"printability": None}
 
+    # Generate post-processing recommendations
+    from backend.core.recommendation_engine import generate_recommendations
+
+    new_recs = generate_recommendations(result)
+    rec_dicts = [
+        {"action": r.action, "tool": r.tool, "description": r.description, "severity": r.severity}
+        for r in new_recs
+    ]
+
+    # Merge with existing recommendations from analysis phase
+    existing_recs = list(state.get("recommendations") or [])
+    all_recs = existing_recs + rec_dicts
+
     await _safe_dispatch(
         "job.printability_ready",
-        {"job_id": state["job_id"], "printability": result},
+        {"job_id": state["job_id"], "printability": result, "recommendations": all_recs},
     )
 
     # Intercept error-level printability issues to fail the pipeline
@@ -82,8 +95,9 @@ async def check_printability_node(state: CadJobState) -> dict[str, Any]:
             error_msgs = "; ".join(issue.get("message", "") for issue in error_issues)
             return {
                 "printability": result,
+                "recommendations": all_recs,
                 "error": f"Printability check failed: {error_msgs}",
                 "status": "failed",
             }
 
-    return {"printability": result}
+    return {"printability": result, "recommendations": all_recs}
