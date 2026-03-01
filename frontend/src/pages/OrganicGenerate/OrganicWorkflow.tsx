@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { Steps, Alert, Spin, Result, Card, Typography, Progress } from 'antd';
 import {
   SearchOutlined,
+  EditOutlined,
   RocketOutlined,
   ToolOutlined,
   CheckCircleOutlined,
@@ -13,6 +14,7 @@ import type {
   OrganicWorkflowState,
   OrganicPhase,
   OrganicConstraints,
+  OrganicSpec,
   MeshStats,
   PostProcessStepInfo,
   PostProcessStepStatus,
@@ -24,14 +26,16 @@ const PHASE_STEP_MAP: Record<OrganicPhase, number> = {
   idle: -1,
   created: 0,
   analyzing: 0,
-  generating: 1,
-  post_processing: 2,
-  completed: 3,
+  awaiting_confirmation: 1,
+  generating: 2,
+  post_processing: 3,
+  completed: 4,
   failed: -1,
 };
 
 const STEP_ITEMS = [
   { title: '分析', icon: <SearchOutlined /> },
+  { title: '确认', icon: <EditOutlined /> },
   { title: '生成', icon: <RocketOutlined /> },
   { title: '后处理', icon: <ToolOutlined /> },
   { title: '完成', icon: <CheckCircleOutlined /> },
@@ -51,6 +55,7 @@ const INITIAL_STATE: OrganicWorkflowState = {
   message: '',
   progress: 0,
   error: null,
+  organicSpec: null,
   modelUrl: null,
   stlUrl: null,
   threemfUrl: null,
@@ -76,6 +81,22 @@ function handleSSEEvent(
       break;
     case 'analyzing':
       setState((prev) => ({ ...prev, jobId, phase: 'analyzing', message, progress }));
+      break;
+    case 'organic_spec_ready':
+      setState((prev) => ({
+        ...prev,
+        jobId,
+        organicSpec: (evt.organic_spec as OrganicSpec) ?? null,
+      }));
+      break;
+    case 'awaiting_confirmation':
+      setState((prev) => ({
+        ...prev,
+        jobId,
+        phase: 'awaiting_confirmation',
+        message: '请确认 AI 分析结果',
+        progress: 0,
+      }));
       break;
     case 'generating':
       setState((prev) => ({ ...prev, jobId, phase: 'generating', message, progress }));
@@ -200,7 +221,7 @@ export function useOrganicWorkflow() {
         const formData = new FormData();
         formData.append('file', opts.imageFile!);
 
-        const uploadResp = await fetch('/api/v1/organic/upload', {
+        const uploadResp = await fetch('/api/v1/jobs/upload-reference', {
           method: 'POST',
           body: formData,
           signal: abort.signal,
@@ -217,6 +238,7 @@ export function useOrganicWorkflow() {
 
       // Start generation with prompt + optional reference_image
       const body: Record<string, unknown> = {
+        input_type: 'organic',
         prompt: opts.prompt || 'Generate from reference image',
         constraints: opts.constraints,
         quality_mode: opts.qualityMode,
@@ -224,7 +246,7 @@ export function useOrganicWorkflow() {
       };
       if (fileId) body.reference_image = fileId;
 
-      const resp = await fetch('/api/v1/organic', {
+      const resp = await fetch('/api/v1/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -243,12 +265,49 @@ export function useOrganicWorkflow() {
     }
   }, []);
 
+  const confirmJob = useCallback(async (overrides?: Record<string, unknown>) => {
+    const jobId = state.jobId;
+    if (!jobId) return;
+
+    const abort = new AbortController();
+    abortRef.current = abort;
+
+    setState((prev) => ({
+      ...prev,
+      phase: 'generating',
+      message: '正在启动生成…',
+      progress: 0,
+    }));
+
+    try {
+      const resp = await fetch(`/api/v1/jobs/${jobId}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmed_spec: overrides || {},
+          disclaimer_accepted: true,
+        }),
+        signal: abort.signal,
+      });
+
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      await consumeSSE(resp, setState);
+    } catch (err: unknown) {
+      if ((err as Error).name === 'AbortError') return;
+      setState((prev) => ({
+        ...prev,
+        phase: 'failed',
+        error: (err as Error).message || '确认失败',
+      }));
+    }
+  }, [state.jobId]);
+
   const reset = useCallback(() => {
     abortRef.current?.abort();
     setState(INITIAL_STATE);
   }, []);
 
-  return { state, startGenerate, reset };
+  return { state, startGenerate, confirmJob, reset };
 }
 
 // ---------------------------------------------------------------------------
@@ -356,10 +415,16 @@ export default function OrganicWorkflowProgress({ state }: OrganicWorkflowProgre
         />
       )}
 
-      {state.message && state.phase !== 'completed' && state.phase !== 'failed' && (
+      {state.message && state.phase !== 'completed' && state.phase !== 'failed' && state.phase !== 'awaiting_confirmation' && (
         <div style={{ marginTop: 8, textAlign: 'center' }}>
           <Spin size="small" style={{ marginRight: 8 }} />
           <Text type="secondary">{state.message}</Text>
+        </div>
+      )}
+
+      {state.phase === 'awaiting_confirmation' && (
+        <div style={{ marginTop: 8, textAlign: 'center' }}>
+          <Text type="warning">AI 已完成分析，请在左侧面板确认后继续生成</Text>
         </div>
       )}
 

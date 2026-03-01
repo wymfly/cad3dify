@@ -3,6 +3,7 @@ import type { PrintabilityResult } from './printability.ts';
 export type OrganicJobStatus =
   | 'created'
   | 'analyzing'
+  | 'awaiting_confirmation'
   | 'generating'
   | 'post_processing'
   | 'completed'
@@ -65,6 +66,7 @@ export interface OrganicWorkflowState {
   message: string;
   progress: number;
   error: string | null;
+  organicSpec: OrganicSpec | null;
   modelUrl: string | null;
   stlUrl: string | null;
   threemfUrl: string | null;
@@ -73,6 +75,16 @@ export interface OrganicWorkflowState {
   postProcessSteps: PostProcessStepInfo[];
   warnings: string[];
   printability: PrintabilityResult | null;
+}
+
+export interface OrganicSpec {
+  prompt_en: string;
+  prompt_original: string;
+  shape_category: string;
+  suggested_bounding_box: [number, number, number] | null;
+  final_bounding_box: [number, number, number] | null;
+  engineering_cuts: EngineeringCut[];
+  quality_mode: string;
 }
 
 export interface OrganicGenerateRequest {

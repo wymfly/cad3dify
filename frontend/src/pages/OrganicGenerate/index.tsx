@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Row, Col, Card, Button, Typography } from 'antd';
-import { RocketOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Row, Col, Card, Button, Typography, Descriptions, Tag } from 'antd';
+import { RocketOutlined, ReloadOutlined, CheckOutlined } from '@ant-design/icons';
 import { useOrganicWorkflowContext } from '../../contexts/OrganicWorkflowContext.tsx';
 import Viewer3D from '../../components/Viewer3D/index.tsx';
 import OrganicInput from './OrganicInput.tsx';
@@ -11,12 +11,13 @@ import MeshStatsCard from './MeshStatsCard.tsx';
 import OrganicDownloadButtons from './OrganicDownloadButtons.tsx';
 import PrintReport from '../../components/PrintReport/index.tsx';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 export default function OrganicGenerate() {
   const {
     workflow,
     startGenerate,
+    confirmJob,
     reset,
     constraints,
     setConstraints,
@@ -29,7 +30,12 @@ export default function OrganicGenerate() {
   const [prompt, setPrompt] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
 
-  const isRunning = workflow.phase !== 'idle' && workflow.phase !== 'completed' && workflow.phase !== 'failed';
+  const isConfirming = workflow.phase === 'awaiting_confirmation';
+  const isRunning =
+    workflow.phase !== 'idle' &&
+    workflow.phase !== 'completed' &&
+    workflow.phase !== 'failed' &&
+    !isConfirming;
 
   const handleGenerate = async () => {
     if (!prompt.trim() && !imageFile) return;
@@ -84,6 +90,50 @@ export default function OrganicGenerate() {
             />
           </Card>
 
+          {isConfirming && workflow.organicSpec && (
+            <Card
+              title="AI 分析结果"
+              size="small"
+              style={{ marginBottom: 16, borderColor: '#faad14' }}
+              extra={
+                <Button
+                  type="primary"
+                  icon={<CheckOutlined />}
+                  onClick={() => confirmJob()}
+                >
+                  确认生成
+                </Button>
+              }
+            >
+              <Descriptions column={1} size="small">
+                <Descriptions.Item label="英文描述">
+                  {workflow.organicSpec.prompt_en}
+                </Descriptions.Item>
+                <Descriptions.Item label="形状类别">
+                  <Tag color="blue">{workflow.organicSpec.shape_category}</Tag>
+                </Descriptions.Item>
+                {workflow.organicSpec.final_bounding_box && (
+                  <Descriptions.Item label="包围盒 (mm)">
+                    {workflow.organicSpec.final_bounding_box.join(' × ')}
+                  </Descriptions.Item>
+                )}
+                {workflow.organicSpec.engineering_cuts.length > 0 && (
+                  <Descriptions.Item label="工程切割">
+                    {workflow.organicSpec.engineering_cuts.map((cut, i) => (
+                      <Tag key={i}>{cut.type}</Tag>
+                    ))}
+                  </Descriptions.Item>
+                )}
+                <Descriptions.Item label="质量模式">
+                  {workflow.organicSpec.quality_mode}
+                </Descriptions.Item>
+              </Descriptions>
+              <Text type="secondary" style={{ fontSize: 12, marginTop: 8, display: 'block' }}>
+                确认以上分析结果后将开始 3D 模型生成
+              </Text>
+            </Card>
+          )}
+
           <div style={{ display: 'flex', gap: 8 }}>
             <Button
               type="primary"
@@ -101,7 +151,7 @@ export default function OrganicGenerate() {
                 icon={<ReloadOutlined />}
                 size="large"
                 onClick={handleReset}
-                disabled={isRunning}
+                disabled={isRunning && !isConfirming}
               >
                 重新开始
               </Button>

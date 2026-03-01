@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Button, Typography, Divider, Empty } from 'antd';
-import { RocketOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Button, Typography, Divider, Empty, Descriptions, Tag } from 'antd';
+import { RocketOutlined, ReloadOutlined, CheckOutlined } from '@ant-design/icons';
 import { useOutletContext } from 'react-router-dom';
 import type { WorkbenchOutletContext } from '../../layouts/WorkbenchLayout.tsx';
 import { useOrganicWorkflowContext } from '../../contexts/OrganicWorkflowContext.tsx';
@@ -24,6 +24,7 @@ function toWorkflowPhase(organicPhase: string): WorkflowPhase {
     case 'idle': return 'idle';
     case 'created':
     case 'analyzing': return 'parsing';
+    case 'awaiting_confirmation': return 'parsing';
     case 'generating': return 'generating';
     case 'post_processing': return 'refining';
     case 'completed': return 'completed';
@@ -38,6 +39,7 @@ export default function OrganicWorkbench() {
   const {
     workflow,
     startGenerate,
+    confirmJob,
     reset,
     constraints,
     setConstraints,
@@ -50,10 +52,12 @@ export default function OrganicWorkbench() {
   const [prompt, setPrompt] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
 
+  const isConfirming = workflow.phase === 'awaiting_confirmation';
   const isRunning =
     workflow.phase !== 'idle' &&
     workflow.phase !== 'completed' &&
-    workflow.phase !== 'failed';
+    workflow.phase !== 'failed' &&
+    !isConfirming;
 
   const canGenerate =
     (prompt.trim().length > 0 || imageFile !== null) && !isRunning;
@@ -128,6 +132,60 @@ export default function OrganicWorkbench() {
           </div>
         );
 
+      case 'awaiting_confirmation':
+        return (
+          <div>
+            <Title level={5}>AI 分析结果</Title>
+            {workflow.organicSpec && (
+              <>
+                <Descriptions column={1} size="small">
+                  <Descriptions.Item label="英文描述">
+                    {workflow.organicSpec.prompt_en}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="形状类别">
+                    <Tag color="blue">{workflow.organicSpec.shape_category}</Tag>
+                  </Descriptions.Item>
+                  {workflow.organicSpec.final_bounding_box && (
+                    <Descriptions.Item label="包围盒 (mm)">
+                      {workflow.organicSpec.final_bounding_box.join(' × ')}
+                    </Descriptions.Item>
+                  )}
+                  {workflow.organicSpec.engineering_cuts.length > 0 && (
+                    <Descriptions.Item label="工程切割">
+                      {workflow.organicSpec.engineering_cuts.map((cut, i) => (
+                        <Tag key={i}>{cut.type}</Tag>
+                      ))}
+                    </Descriptions.Item>
+                  )}
+                  <Descriptions.Item label="质量模式">
+                    {workflow.organicSpec.quality_mode}
+                  </Descriptions.Item>
+                </Descriptions>
+                <Text type="secondary" style={{ fontSize: 12, marginTop: 8, display: 'block' }}>
+                  确认以上分析结果后将开始 3D 模型生成
+                </Text>
+              </>
+            )}
+            <Button
+              type="primary"
+              icon={<CheckOutlined />}
+              block
+              onClick={() => confirmJob()}
+              style={{ marginTop: 16 }}
+            >
+              确认生成
+            </Button>
+            <Button
+              icon={<ReloadOutlined />}
+              block
+              onClick={handleReset}
+              style={{ marginTop: 8 }}
+            >
+              重新开始
+            </Button>
+          </div>
+        );
+
       case 'created':
       case 'analyzing':
       case 'generating':
@@ -193,15 +251,18 @@ export default function OrganicWorkbench() {
     workflow.stlUrl,
     workflow.threemfUrl,
     workflow.meshStats,
+    workflow.organicSpec,
     prompt,
     imageFile,
     constraints,
     qualityMode,
     provider,
     isRunning,
+    isConfirming,
     canGenerate,
     handleGenerate,
     handleReset,
+    confirmJob,
     setConstraints,
     setQualityMode,
     setProvider,
@@ -231,6 +292,7 @@ export default function OrganicWorkbench() {
 
       case 'created':
       case 'analyzing':
+      case 'awaiting_confirmation':
       case 'generating':
       case 'post_processing':
         return (

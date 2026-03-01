@@ -13,6 +13,7 @@ import type {
 interface OrganicWorkflowContextValue {
   workflow: OrganicWorkflowState;
   startGenerate: (opts: StartGenerateOptions) => Promise<void>;
+  confirmJob: (overrides?: Record<string, unknown>) => Promise<void>;
   reset: () => void;
   constraints: OrganicConstraints;
   setConstraints: (c: OrganicConstraints) => void;
@@ -30,7 +31,7 @@ const DEFAULT_CONSTRAINTS: OrganicConstraints = {
 };
 
 export function OrganicWorkflowProvider({ children }: { children: ReactNode }) {
-  const { state, startGenerate, reset } = useOrganicWorkflow();
+  const { state, startGenerate, confirmJob, reset } = useOrganicWorkflow();
   const [constraints, setConstraints] = useState<OrganicConstraints>(DEFAULT_CONSTRAINTS);
   const [qualityMode, setQualityMode] = useState<QualityMode>('standard');
   const [provider, setProvider] = useState<ProviderPreference>('auto');
@@ -40,6 +41,7 @@ export function OrganicWorkflowProvider({ children }: { children: ReactNode }) {
       value={{
         workflow: state,
         startGenerate,
+        confirmJob,
         reset,
         constraints,
         setConstraints,
