@@ -398,7 +398,7 @@ async def generate_organic_mesh_node(state: CadJobState) -> dict[str, Any]:
         logger.info("Mesh already exists at %s, skipping generation", raw_mesh)
         return {}
 
-    from backend.infra.mesh_providers import create_provider
+    from backend.infra.mesh_providers import AutoProvider, HunyuanProvider, TripoProvider
     from backend.models.organic import OrganicSpec
 
     provider_name = state.get("organic_provider") or "auto"
@@ -416,7 +416,13 @@ async def generate_organic_mesh_node(state: CadJobState) -> dict[str, Any]:
     })
     await _safe_update_job(job_id, status="generating")
 
-    provider = create_provider(provider_name)
+    # Instantiate provider directly — no factory function exists.
+    if provider_name == "tripo3d":
+        provider = TripoProvider()
+    elif provider_name == "hunyuan3d":
+        provider = HunyuanProvider()
+    else:
+        provider = AutoProvider(tripo=TripoProvider(), hunyuan=HunyuanProvider())
 
     # Bridge sync on_progress callback to dispatch keepalive SSE events.
     # provider.generate() may run sync loops internally; use sync dispatch.
@@ -562,7 +568,7 @@ async def postprocess_organic_node(state: CadJobState) -> dict[str, Any]:
         # 7. Printability check
         printability_result: dict | None = None
         try:
-            from backend.core.printability_checker import PrintabilityChecker
+            from backend.core.printability import PrintabilityChecker
             checker = PrintabilityChecker()
             printability_result = await asyncio.to_thread(checker.check, str(stl_path))
         except Exception as exc:
@@ -791,10 +797,10 @@ async def test_generate_mesh_success(base_state):
         "quality_mode": "standard",
     }
     mock_path = Path("/tmp/test_mesh.glb")
-    with patch("backend.graph.nodes.organic.create_provider") as mock_create:
+    with patch("backend.graph.nodes.organic.AutoProvider") as MockAuto:
         provider = AsyncMock()
         provider.generate = AsyncMock(return_value=mock_path)
-        mock_create.return_value = provider
+        MockAuto.return_value = provider
         result = await generate_organic_mesh_node(base_state)
 
     assert result["raw_mesh_path"] == str(mock_path)
@@ -813,10 +819,10 @@ async def test_generate_mesh_idempotent(base_state, tmp_path):
 @pytest.mark.asyncio
 async def test_generate_mesh_provider_failure(base_state):
     base_state["organic_spec"] = {"prompt_en": "bear", "quality_mode": "standard"}
-    with patch("backend.graph.nodes.organic.create_provider") as mock_create:
+    with patch("backend.graph.nodes.organic.AutoProvider") as MockAuto:
         provider = AsyncMock()
         provider.generate = AsyncMock(side_effect=RuntimeError("API down"))
-        mock_create.return_value = provider
+        MockAuto.return_value = provider
         result = await generate_organic_mesh_node(base_state)
 
     assert result["status"] == "failed"
@@ -928,6 +934,16 @@ async def test_organic_confirm_merges_spec_overrides(base_state):
 - 依赖旧 `/api/v1/organic` 端点的测试 → 删除或改写为 `/api/v1/jobs` organic 模式
 - 依赖 OrganicSpecBuilder/MeshProvider 的纯单元测试 → 保留
 
+### Step 5b: 更新其他受影响的测试文件
+
+**重要**：以下测试文件也硬编码了 `stub_organic` 或旧 organic 端点，必须同步更新：
+- `tests/test_graph_builder.py:20` — 将 `stub_organic` 改为 `analyze_organic`（graph 节点名更新）
+- `tests/test_graph_nodes_analysis.py:103-112` — 删除 `TestStubOrganicNode` 测试类（stub 已删除）
+- `tests/test_graph_routing.py:34-37` — 将 `test_organic_routes_to_finalize` 改为 `test_organic_routes_to_organic`，assert 值从 `"finalize"` 改为 `"organic"`
+- `tests/test_graph_hitl.py` — 检查是否有 organic stub 相关测试，更新路由期望
+- `tests/test_mechanical_regression.py:54` — 检查是否引用 `/api/v1/organic`，更新为 `/api/v1/jobs`
+- `tests/e2e/test_organic_flow.py` — 更新为使用统一 Job API
+
 ### Step 6: 运行全部测试
 
 Run: `uv run pytest tests/ -v`
@@ -953,15 +969,34 @@ git commit -m "test(organic): comprehensive tests for organic nodes, routing, co
 
 ### Step 1: 迁移 /providers 端点到 jobs router
 
-从 `backend/api/v1/organic.py` 的 `@router.get("/providers")` 函数（约第 391 行）提取核心逻辑，在 `backend/api/v1/jobs.py` 中添加：
+从 `backend/api/v1/organic.py` 的 `@router.get("/providers")` 函数（约第 391 行）提取核心逻辑，在 `backend/api/v1/jobs.py` 中添加。
+
+**注意**：`get_available_providers()` 不存在，需直接复制 organic.py 中的 provider 状态查询逻辑：
 
 ```python
+from backend.config import Settings
+
+def _get_settings() -> Settings:
+    return Settings()
+
 @router.get("/organic-providers")
-async def get_organic_providers():
+async def get_organic_providers(settings: Settings = Depends(_get_settings)):
     """Return available organic mesh generation providers and their status."""
-    from backend.infra.mesh_providers import get_available_providers
-    return await get_available_providers()
+    if not settings.organic_enabled:
+        return {"providers": [], "default": settings.organic_default_provider}
+    # Replicate logic from old organic.py — check provider API keys
+    providers = []
+    import os
+    if os.getenv("TRIPO_API_KEY"):
+        providers.append({"name": "tripo3d", "status": "available"})
+    if os.getenv("HUNYUAN_SECRET_ID"):
+        providers.append({"name": "hunyuan3d", "status": "available"})
+    if providers:
+        providers.insert(0, {"name": "auto", "status": "available"})
+    return {"providers": providers, "default": settings.organic_default_provider}
 ```
+
+**重要**：参考 `backend/api/v1/organic.py` 第 391-430 行的实际实现，上面是简化版示意。实施时应从 organic.py 中完整复制逻辑。
 
 ### Step 2: 迁移 /upload 端点到 jobs router
 
@@ -976,14 +1011,28 @@ async def upload_reference_image(file: UploadFile = File(...)):
     # 返回 {"file_id": file_id, "filename": file.filename}
 ```
 
+### Step 2b: 保留 organic_enabled feature gate
+
+**重要**：旧 organic.py 中 `_require_organic_enabled` 依赖的 `settings.organic_enabled` 配置（`backend/config.py:24`）在新端点中需要保留。在 `create_job_endpoint` 中为 `input_type=organic` 添加检查：
+
+```python
+# 在 create_job_endpoint 中，organic input_type 校验后添加：
+if body.input_type == "organic":
+    settings = Settings()
+    if not settings.organic_enabled:
+        raise HTTPException(status_code=403, detail="Organic generation is disabled")
+```
+
 ### Step 3: 从 router.py 移除 organic_router
 
 修改 `backend/api/v1/router.py`，删除 organic_router 的 import 和 include：
 
 ```python
-# 删除: from backend.api.v1.organic import router as organic_router
-# 删除: api_router.include_router(organic_router, prefix="/organic")
+# 删除: from backend.api.v1 import organic  (import 行)
+# 删除: router.include_router(organic.router, prefix="/organic", ...)  (include 行)
 ```
+
+**注意**：router 变量名为 `router`（非 `api_router`），参考 `backend/api/v1/router.py:23`。
 
 ### Step 4: 删除 organic.py
 
