@@ -11,9 +11,8 @@ The system SHALL present the built OrganicSpec to the user for review and confir
 
 #### Scenario: Organic confirm request via existing ConfirmRequest model
 - **WHEN** user confirms organic spec via POST /api/v1/jobs/{id}/confirm
-- **THEN** the `ConfirmRequest.confirmed_params` dict (typed `dict[str, Any]`, not `dict[str, float]`) SHALL accept organic-specific keys: `prompt_en`, `bounding_box`, `quality_mode`, `provider`
-- **AND** `confirm_with_user_node` merges these into `CadJobState` (updating `organic_spec`, `organic_quality_mode`, `organic_provider` as needed)
-- **AND** the existing `confirmed_params: dict[str, float]` type annotation in `jobs.py` MUST be changed to `dict[str, Any]` to support string-valued organic parameters
+- **THEN** the `ConfirmRequest.confirmed_spec: dict[str, Any]` field (NOT `confirmed_params: dict[str, float]` which must remain typed for text/drawing Pydantic coercion) SHALL accept organic-specific keys: `prompt_en`, `bounding_box`, `quality_mode`, `provider`
+- **AND** `confirm_job_endpoint` constructs the resume_value from `confirmed_spec` for organic mode, merging edits into `CadJobState` fields (`organic_spec`, `organic_quality_mode`, `organic_provider`) via LangGraph's `Command(resume=state_update)`
 
 #### Scenario: Organic confirm resumes graph to mesh generation
 - **WHEN** `confirm_with_user_node` completes for an organic job
