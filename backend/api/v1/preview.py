@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import shutil
 import tempfile
 from pathlib import Path
@@ -18,6 +19,8 @@ from pydantic import BaseModel
 
 from backend.api.v1.errors import APIError, ErrorCode
 from backend.infra.outputs import ensure_job_dir, get_model_url
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/preview", tags=["preview"])
 
@@ -108,15 +111,18 @@ def _render_preview(template_name: str, params: dict[str, float]) -> str:
     step_path = str(preview_dir / "preview.step")
     glb_path = str(preview_dir / "preview.glb")
 
+    logger.info("Preview render: template=%s, params=%s", template_name, params)
+
     try:
         # Render CadQuery code from template
         code = engine.render(template_name, params, output_filename=step_path)
 
         # Execute in sandbox
-        executor = SafeExecutor(timeout_s=5)
+        executor = SafeExecutor(timeout_s=10)
         result = executor.execute(code)
 
         if not result.success:
+            logger.error("CadQuery execution failed: %s", result.stderr)
             raise RuntimeError(f"CadQuery execution failed: {result.stderr}")
         if not Path(step_path).exists():
             raise RuntimeError("CadQuery did not produce a STEP file")
@@ -174,17 +180,17 @@ async def preview_parametric(body: PreviewRequest) -> PreviewResponse:
             glb_url=_preview_cache[cache_key], cached=True,
         )
 
-    # 4. Render + execute with 5s timeout
+    # 4. Render + execute with 10s timeout
     try:
         glb_path = await asyncio.wait_for(
             asyncio.to_thread(_render_preview, body.template_name, body.params),
-            timeout=5.0,
+            timeout=10.0,
         )
     except asyncio.TimeoutError:
         raise APIError(
             status_code=408,
             code=ErrorCode.INTERNAL_ERROR,
-            message="预览超时，请直接生成完整模型",
+            message="预览超时（10s），请直接生成完整模型",
         )
     except RuntimeError as exc:
         raise APIError(

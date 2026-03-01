@@ -88,8 +88,11 @@ async def analyze_intent_node(state: CadJobState) -> dict[str, Any]:
             template_params = []
             for p in tpl.params:
                 d = p.model_dump()
+                # 优先级: canonical name > display_name (LLM 可能返回中文键)
                 if p.name in known:
                     d["default"] = known[p.name]
+                elif p.display_name and p.display_name in known:
+                    d["default"] = known[p.display_name]
                 template_params.append(d)
     except Exception:
         pass

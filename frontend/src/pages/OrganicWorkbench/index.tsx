@@ -11,10 +11,9 @@ import QualitySelector from '../OrganicGenerate/QualitySelector.tsx';
 import MeshStatsCard from '../OrganicGenerate/MeshStatsCard.tsx';
 import OrganicDownloadButtons from '../OrganicGenerate/OrganicDownloadButtons.tsx';
 import PipelineProgress from '../../components/PipelineProgress/index.tsx';
-import PipelineLog from '../../components/PipelineLog/index.tsx';
+import OrganicWorkflowProgress from '../OrganicGenerate/OrganicWorkflow.tsx';
 import PrintReport from '../../components/PrintReport/index.tsx';
 import Viewer3D from '../../components/Viewer3D/index.tsx';
-import type { JobEvent } from '../../hooks/useJobEvents.ts';
 import type { WorkflowPhase } from '../../types/generate.ts';
 
 const { Text, Title } = Typography;
@@ -50,7 +49,6 @@ export default function OrganicWorkbench() {
 
   const [prompt, setPrompt] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [sseEvents] = useState<JobEvent[]>([]);
 
   const isRunning =
     workflow.phase !== 'idle' &&
@@ -238,7 +236,7 @@ export default function OrganicWorkbench() {
         return (
           <div>
             <Title level={5}>管道日志</Title>
-            <PipelineLog events={sseEvents} />
+            <OrganicWorkflowProgress state={workflow} />
           </div>
         );
 
@@ -263,7 +261,7 @@ export default function OrganicWorkbench() {
       default:
         return null;
     }
-  }, [workflow.phase, workflow.printability, sseEvents]);
+  }, [workflow.phase, workflow.printability, workflow]);
 
   // 注入面板内容到 WorkbenchLayout
   useEffect(() => {
