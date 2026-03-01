@@ -10,6 +10,11 @@ import type {
   CheckResponse,
 } from '../types/standard.ts';
 import type { PrintProfile, PrintabilityResult } from '../types/printability.ts';
+import type {
+  LLMConfigResponse,
+  LLMConfigUpdateResponse,
+  ModelOption,
+} from '../types/llmConfig.ts';
 
 const api = axios.create({ baseURL: '/api' });
 
@@ -291,6 +296,26 @@ export async function previewParametric(
     params,
   }, { signal });
   return data;
+}
+
+// LLM Config API
+export async function getLLMConfig(): Promise<LLMConfigResponse> {
+  const { data } = await api.get<LLMConfigResponse>('/v1/llm-config');
+  return data;
+}
+
+export async function updateLLMConfig(
+  roles: Record<string, string>,
+): Promise<LLMConfigUpdateResponse> {
+  const { data } = await api.put<LLMConfigUpdateResponse>('/v1/llm-config', {
+    roles,
+  });
+  return data;
+}
+
+export async function getAvailableModels(): Promise<ModelOption[]> {
+  const { data } = await api.get<{ models: ModelOption[] }>('/v1/llm-config/models');
+  return data.models;
 }
 
 export default api;
