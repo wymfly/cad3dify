@@ -74,6 +74,8 @@ def _orm_to_job(orm: Any) -> Job:
         status=JobStatus(orm.status),
         input_type=orm.input_type or "text",
         input_text=orm.input_text or "",
+        intent=orm.intent,
+        precise_spec=orm.precise_spec,
         recommendations=orm.recommendations or [],
         drawing_spec=orm.drawing_spec,
         drawing_spec_confirmed=orm.drawing_spec_confirmed,
