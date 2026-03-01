@@ -55,9 +55,10 @@ class OrganicSpecBuilder:
         Override in tests with mock. In production, uses configured LLM.
         """
         try:
-            from langchain_openai import ChatOpenAI
+            from backend.infra.chat_models import ChatModelParameters
 
-            llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.1)
+            params = ChatModelParameters.from_model_name("qwen")
+            llm = params.create_chat_model()
             response = await llm.ainvoke([
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
