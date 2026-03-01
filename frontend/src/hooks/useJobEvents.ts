@@ -115,6 +115,13 @@ export function useJobEvents({
       'job.generating',
       'job.completed',
       'job.failed',
+      // M3: node lifecycle events
+      'node.started',
+      'node.completed',
+      'node.failed',
+      // M2: additional events
+      'job.preview_ready',
+      'job.printability_ready',
     ] as const;
 
     for (const eventType of SSE_EVENT_TYPES) {

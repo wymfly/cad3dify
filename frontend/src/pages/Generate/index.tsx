@@ -4,6 +4,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import PipelineConfigBar from '../../components/PipelineConfigBar/index.tsx';
 import Viewer3D from '../../components/Viewer3D/index.tsx';
 import ParamForm from '../../components/ParamForm/index.tsx';
+import PipelinePanel from '../../components/PipelinePanel/index.tsx';
 import ChatInput from './ChatInput.tsx';
 import DownloadButtons from './DownloadButtons.tsx';
 import GenerateWorkflow from './GenerateWorkflow.tsx';
@@ -11,6 +12,7 @@ import DrawingSpecReview from './DrawingSpecReview.tsx';
 import PrintReport from '../../components/PrintReport/index.tsx';
 import { useGenerateWorkflowContext } from '../../contexts/GenerateWorkflowContext.tsx';
 import { useParametricPreview } from '../../hooks/useParametricPreview.ts';
+import { useJobEvents } from '../../hooks/useJobEvents.ts';
 
 const { Title, Paragraph } = Typography;
 
@@ -79,6 +81,14 @@ export default function Generate() {
   // Use preview URL during confirming, otherwise use workflow model URL
   const viewerModelUrl = previewUrl ?? workflow.modelUrl;
 
+  // M3: DAG events for PipelinePanel
+  const { events: dagEvents } = useJobEvents({ jobId: workflow.jobId });
+  const dagInputType = useMemo(() => {
+    if (workflow.phase === 'idle') return null;
+    if (workflow.drawingSpec) return 'drawing';
+    return 'text';
+  }, [workflow.phase, workflow.drawingSpec]);
+
   const isInputDisabled =
     workflow.phase !== 'idle' && workflow.phase !== 'completed' && workflow.phase !== 'failed';
 
@@ -119,10 +129,11 @@ export default function Generate() {
               loading={workflow.phase === 'parsing'}
             />
 
-            {/* Workflow progress */}
-            <GenerateWorkflow
-              state={workflow}
-              onPhaseChange={() => {}}
+            {/* Workflow progress + DAG */}
+            <PipelinePanel
+              progressView={<GenerateWorkflow state={workflow} onPhaseChange={() => {}} />}
+              inputType={dagInputType}
+              events={dagEvents}
             />
 
             {/* Drawing spec review (shown during drawing_review phase) */}
