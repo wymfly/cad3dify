@@ -51,7 +51,7 @@ start_frontend() {
 wait_for_backend() {
     echo -n "  等待后端就绪"
     for i in $(seq 1 30); do
-        if curl -s "http://localhost:$BACKEND_PORT/api/health" > /dev/null 2>&1; then
+        if curl -s "http://localhost:$BACKEND_PORT/api/v1/health" > /dev/null 2>&1; then
             echo " ✓"
             return 0
         fi
