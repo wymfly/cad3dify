@@ -187,8 +187,16 @@ async def create_job_endpoint(body: CreateJobRequest, request: Request) -> Event
             message=f"不支持的 input_type: {body.input_type!r}，可选值: text | organic | drawing",
         )
 
-    # Organic mode: validate input_text or reference_image is provided
+    # Organic mode: feature gate + input validation
     if body.input_type == "organic":
+        from backend.config import Settings
+        settings = Settings()
+        if not settings.organic_enabled:
+            raise APIError(
+                status_code=503,
+                code=ErrorCode.ORGANIC_DISABLED,
+                message="Organic engine is disabled. Set ORGANIC_ENABLED=true to enable.",
+            )
         input_text = body.text or body.prompt
         if not input_text and not body.reference_image:
             raise APIError(
@@ -304,6 +312,103 @@ async def list_jobs_endpoint(
         page=page,
         page_size=page_size,
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/jobs/organic-providers — 有机 Provider 健康状态
+# (Must be before /{job_id} to avoid route parameter conflict)
+# ---------------------------------------------------------------------------
+
+_ALLOWED_MIME_TYPES = {"image/png", "image/jpeg", "image/webp"}
+_MIME_TO_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+
+
+@router.get("/organic-providers")
+async def get_organic_providers() -> dict[str, Any]:
+    """Check health of available mesh generation providers."""
+    from backend.config import Settings
+    from backend.infra.mesh_providers import HunyuanProvider, TripoProvider
+
+    settings = Settings()
+    if not settings.organic_enabled:
+        raise APIError(
+            status_code=503,
+            code=ErrorCode.ORGANIC_DISABLED,
+            message="Organic engine is disabled.",
+        )
+
+    output_dir = Path("outputs") / "organic"
+    tripo = TripoProvider(api_key=settings.tripo3d_api_key, output_dir=output_dir)
+    hunyuan = HunyuanProvider(api_key=settings.hunyuan3d_api_key, output_dir=output_dir)
+
+    tripo_ok, hunyuan_ok = await asyncio.gather(
+        tripo.check_health(),
+        hunyuan.check_health(),
+    )
+
+    return {
+        "providers": {
+            "tripo3d": {
+                "available": tripo_ok,
+                "configured": bool(settings.tripo3d_api_key),
+            },
+            "hunyuan3d": {
+                "available": hunyuan_ok,
+                "configured": bool(settings.hunyuan3d_api_key),
+            },
+        },
+        "default_provider": settings.organic_default_provider,
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/jobs/upload-reference — 参考图上传
+# ---------------------------------------------------------------------------
+
+
+@router.post("/upload-reference")
+async def upload_reference_image(
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    """Upload a reference image for organic generation."""
+    from backend.config import Settings
+
+    settings = Settings()
+    if not settings.organic_enabled:
+        raise APIError(
+            status_code=503,
+            code=ErrorCode.ORGANIC_DISABLED,
+            message="Organic engine is disabled.",
+        )
+
+    if file.content_type not in _ALLOWED_MIME_TYPES:
+        raise APIError(
+            status_code=422,
+            code=ErrorCode.VALIDATION_FAILED,
+            message=f"Unsupported file type: {file.content_type}. Allowed: {', '.join(sorted(_ALLOWED_MIME_TYPES))}",
+        )
+
+    max_bytes = settings.organic_upload_max_mb * 1024 * 1024
+    content = await file.read()
+    if len(content) > max_bytes:
+        raise APIError(
+            status_code=422,
+            code=ErrorCode.VALIDATION_FAILED,
+            message=f"File too large: {len(content)} bytes. Maximum: {max_bytes} bytes ({settings.organic_upload_max_mb}MB)",
+        )
+
+    upload_dir = Path("outputs") / "organic" / "uploads"
+    file_id = str(uuid.uuid4())
+    ext = Path(file.filename or "image.png").suffix or _MIME_TO_EXT.get(file.content_type or "", ".png")
+    save_path = upload_dir / f"{file_id}{ext}"
+
+    def _write_upload() -> None:
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        save_path.write_bytes(content)
+
+    await asyncio.to_thread(_write_upload)
+
+    return {"file_id": file_id, "filename": file.filename or "", "size": len(content)}
 
 
 # ---------------------------------------------------------------------------

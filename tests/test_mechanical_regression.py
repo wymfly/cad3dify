@@ -1,7 +1,7 @@
 """Smoke tests ensuring the mechanical pipeline is unaffected by organic additions.
 
 These tests verify that existing endpoints and the organic feature-gate
-work correctly after introducing the organic engine pipeline.
+work correctly after the organic LangGraph migration.
 """
 from __future__ import annotations
 
@@ -51,17 +51,16 @@ async def test_mechanical_drawing_endpoint_responds(client: AsyncClient):
         pass
 
 
-async def test_organic_endpoints_exist(client: AsyncClient):
-    """Organic endpoints must be mounted (not 404)."""
-    resp = await client.get("/api/v1/organic/providers")
+async def test_organic_providers_endpoint_exists(client: AsyncClient):
+    """Organic providers endpoint must be mounted at new path (not 404)."""
+    resp = await client.get("/api/v1/jobs/organic-providers")
     assert resp.status_code != 404
 
 
 async def test_organic_feature_gate_returns_503_when_disabled(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """When ORGANIC_ENABLED=false, organic endpoints must return 503."""
-    # Patch the settings object used by the organic router
+    """When ORGANIC_ENABLED=false, organic job creation must return 503."""
     from backend.config import Settings
 
     original_init = Settings.__init__
@@ -72,18 +71,8 @@ async def test_organic_feature_gate_returns_503_when_disabled(
 
     monkeypatch.setattr(Settings, "__init__", patched_init)
 
-    # Re-import to get fresh settings — but since the app is already created,
-    # we need to test via the actual endpoint behavior.
-    # The feature-gate check happens at request time, so we patch the settings instance.
-    import backend.api.v1.organic as organic_module
-
-    if hasattr(organic_module, "settings"):
-        monkeypatch.setattr(organic_module.settings, "organic_enabled", False)
-
     resp = await client.post(
-        "/api/v1/organic",
-        json={"prompt": "test"},
+        "/api/v1/jobs",
+        json={"input_type": "organic", "prompt": "test"},
     )
-    # If the feature gate is implemented, expect 503
-    # If not yet gated at module level, the endpoint still exists (not 404)
-    assert resp.status_code in (503, 200)
+    assert resp.status_code == 503
