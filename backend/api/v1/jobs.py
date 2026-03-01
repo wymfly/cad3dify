@@ -60,8 +60,21 @@ class CreateJobResponse(BaseModel):
     status: str
 
 
+class CorrectionItem(BaseModel):
+    """单条用户修正记录（内联于 JobDetailResponse）。"""
+
+    field_path: str
+    original_value: str
+    corrected_value: str
+    timestamp: str | None = None
+    id: int | None = None
+
+
 class JobDetailResponse(BaseModel):
-    """Job 详情响应。"""
+    """Job 详情响应。
+
+    包含与旧版 history.py get_job_detail 相同的完整字段集。
+    """
 
     job_id: str
     status: str
@@ -71,6 +84,14 @@ class JobDetailResponse(BaseModel):
     error: str | None = None
     created_at: str
     printability: dict[str, Any] | None = None
+    # 以下字段与旧版 history.py 对齐
+    intent: dict[str, Any] | None = None
+    precise_spec: dict[str, Any] | None = None
+    drawing_spec: dict[str, Any] | None = None
+    drawing_spec_confirmed: dict[str, Any] | None = None
+    image_path: str | None = None
+    recommendations: list[dict[str, Any]] = Field(default_factory=list)
+    corrections: list[CorrectionItem] = Field(default_factory=list)
 
 
 class JobListResponse(BaseModel):
@@ -104,8 +125,24 @@ class RegenerateResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _job_to_detail(job: Job) -> JobDetailResponse:
+def _job_to_detail(job: Job, corrections: list[CorrectionItem] | None = None) -> JobDetailResponse:
     """将 Job Pydantic 模型转换为 API 响应。"""
+    intent_data: dict[str, Any] | None = None
+    if job.intent is not None:
+        intent_data = (
+            job.intent.model_dump(mode="json")
+            if hasattr(job.intent, "model_dump")
+            else job.intent
+        )
+
+    precise_data: dict[str, Any] | None = None
+    if job.precise_spec is not None:
+        precise_data = (
+            job.precise_spec.model_dump(mode="json")
+            if hasattr(job.precise_spec, "model_dump")
+            else job.precise_spec
+        )
+
     return JobDetailResponse(
         job_id=job.job_id,
         status=job.status.value,
@@ -115,6 +152,13 @@ def _job_to_detail(job: Job) -> JobDetailResponse:
         printability=job.printability,
         error=job.error,
         created_at=job.created_at,
+        intent=intent_data,
+        precise_spec=precise_data,
+        drawing_spec=job.drawing_spec,
+        drawing_spec_confirmed=job.drawing_spec_confirmed,
+        image_path=job.image_path,
+        recommendations=job.recommendations,
+        corrections=corrections or [],
     )
 
 
@@ -248,11 +292,49 @@ async def list_jobs_endpoint(
 
 @router.get("/{job_id}", response_model=JobDetailResponse)
 async def get_job_endpoint(job_id: str) -> JobDetailResponse:
-    """返回 Job 详情。"""
+    """返回 Job 详情（含用户修正记录）。"""
     job = await get_job(job_id)
     if job is None:
         raise JobNotFoundError(job_id)
-    return _job_to_detail(job)
+
+    # 查询 corrections：DB 优先，JSON 文件兜底
+    from backend.db.database import async_session
+    from backend.db.repository import list_corrections_by_job
+
+    corrections_list: list[CorrectionItem] = []
+    async with async_session() as session:
+        db_corrections = await list_corrections_by_job(session, job_id)
+
+    if db_corrections:
+        corrections_list = [
+            CorrectionItem(
+                id=c.id,
+                field_path=c.field_path,
+                original_value=c.original_value,
+                corrected_value=c.corrected_value,
+                timestamp=c.timestamp.isoformat() if c.timestamp else None,
+            )
+            for c in db_corrections
+        ]
+    else:
+        # JSON 文件兜底（兼容迁移前数据）
+        try:
+            from backend.core.correction_tracker import load_corrections
+
+            json_corrections = load_corrections(job_id)
+            if json_corrections:
+                corrections_list = [
+                    CorrectionItem(
+                        field_path=c.get("field_path", ""),
+                        original_value=c.get("original_value", ""),
+                        corrected_value=c.get("corrected_value", ""),
+                    )
+                    for c in json_corrections
+                ]
+        except Exception:
+            pass  # Corrupt file — return empty corrections
+
+    return _job_to_detail(job, corrections=corrections_list)
 
 
 # ---------------------------------------------------------------------------
@@ -381,15 +463,6 @@ async def regenerate_job(job_id: str) -> RegenerateResponse:
 # ---------------------------------------------------------------------------
 # GET /api/v1/jobs/{job_id}/corrections — 用户修正记录
 # ---------------------------------------------------------------------------
-
-
-class CorrectionItem(BaseModel):
-    """单条用户修正记录。"""
-
-    field_path: str
-    original_value: str
-    corrected_value: str
-    timestamp: str
 
 
 @router.get("/{job_id}/corrections")

@@ -1,13 +1,23 @@
 """Tests for generate API with Job session protocol (Phase 4 Task 4.6).
 
 Tests:
-- Job model lifecycle
-- POST /generate (text mode) → SSE events
-- POST /generate/drawing (drawing mode) → SSE events
-- POST /generate/{job_id}/confirm → SSE resume
-- GET /generate/{job_id} → job status
-- GET /generate/jobs → list jobs
+- Job model lifecycle (model layer, no route dependency)
+- POST /generate (text mode) → SSE events (old route, still mounted)
+- POST /generate/drawing (drawing mode) → SSE events (old route)
+- POST /generate/{job_id}/confirm → SSE resume (old route)
+- GET /generate/{job_id} → job status (old route + V1 equivalent)
+- GET /generate/jobs → list jobs (old route + V1 equivalent)
 - Error cases (404, 409, 400)
+- _parse_pipeline_config (migrated to backend.models.pipeline_config)
+
+V1 Migration Notes (Phase 5a):
+- Job model tests and PipelineConfig tests are route-independent — no changes needed.
+- SSE route tests (create, confirm, drawing) depend on old generate.py internal functions
+  (_parse_intent, _match_template, _run_template_generation, _run_analyze_drawing etc.)
+  which are replaced by LangGraph nodes in V1. These tests remain against old routes
+  for regression coverage and are marked with TODO comments for future V1 LangGraph
+  adaptation.
+- GET endpoints (job status, list) have V1 equivalents tested in test_history_api.py.
 """
 
 from __future__ import annotations
@@ -199,6 +209,10 @@ def parse_sse_events(response_text: str) -> list[dict]:
 
 
 class TestGenerateTextMode:
+    # TODO: adapt for V1 LangGraph pipeline — V1 POST /api/v1/jobs uses
+    # LangGraph astream_events instead of old generate.py _parse_intent/_match_template.
+    # These tests remain against old /api/generate route for regression coverage.
+
     async def test_text_mode_returns_sse(self, client: TestClient) -> None:
         resp = client.post(
             "/api/generate",
@@ -277,7 +291,11 @@ class TestGenerateTextMode:
 
 
 class TestGenerateDrawingMode:
-    """Drawing mode now follows HITL flow: analyze → pause → (confirm in T9)."""
+    """Drawing mode now follows HITL flow: analyze → pause → (confirm in T9).
+
+    TODO: adapt for V1 LangGraph pipeline — V1 POST /api/v1/jobs/upload
+    uses LangGraph instead of old generate.py _run_analyze_drawing.
+    """
 
     _MOCK_SPEC_DATA = {
         "part_type": "rotational",
@@ -437,6 +455,9 @@ class TestGenerateDrawingMode:
 
 
 class TestConfirmParams:
+    # TODO: adapt for V1 LangGraph pipeline — V1 POST /api/v1/jobs/{id}/confirm
+    # uses LangGraph Command(resume=...) instead of old generate.py SSE handlers.
+
     def _create_awaiting_job(self, client: TestClient) -> str:
         """Helper: create a text-mode job in AWAITING_CONFIRMATION state."""
         resp = client.post(
@@ -542,6 +563,9 @@ class TestConfirmParams:
 
 
 class TestGetJobStatus:
+    # Old GET /api/generate/{id} route. V1 equivalent: GET /api/v1/jobs/{id}
+    # (covered in test_history_api.py TestJobDetail).
+
     async def test_get_existing_job(self, client: TestClient) -> None:
         resp = client.post(
             "/api/generate",
@@ -567,6 +591,9 @@ class TestGetJobStatus:
 
 
 class TestListJobs:
+    # Old GET /api/generate/jobs route. V1 equivalent: GET /api/v1/jobs
+    # (covered in test_history_api.py TestListJobs).
+
     async def test_list_empty(self, client: TestClient) -> None:
         resp = client.get("/api/generate/jobs")
         assert resp.status_code == 200
@@ -587,6 +614,8 @@ class TestListJobs:
 
 
 class TestErrorCases:
+    # TODO: adapt for V1 LangGraph pipeline — error handling differs in V1.
+
     async def test_no_body(self, client: TestClient) -> None:
         resp = client.post("/api/generate")
         # Should return 422 (missing required field)
@@ -628,7 +657,10 @@ class TestErrorCases:
 
 
 class TestDrawingModeIntegration:
-    """Integration tests: drawing upload → HITL analysis → pause."""
+    """Integration tests: drawing upload → HITL analysis → pause.
+
+    TODO: adapt for V1 LangGraph pipeline — V1 uses /api/v1/jobs/upload.
+    """
 
     @staticmethod
     def _mock_analyze(image_filepath):
@@ -711,7 +743,11 @@ class TestDrawingModeIntegration:
 
 
 class TestDrawingConfirm:
-    """Tests for POST /generate/drawing/{job_id}/confirm endpoint."""
+    """Tests for POST /generate/drawing/{job_id}/confirm endpoint.
+
+    TODO: adapt for V1 LangGraph pipeline — V1 uses unified
+    POST /api/v1/jobs/{id}/confirm for both text and drawing modes.
+    """
 
     _VALID_CONFIRMED_SPEC: dict = {
         "part_type": "rotational",
@@ -1055,7 +1091,11 @@ class TestParsePipelineConfig:
 
 
 class TestTextModeIntegration:
-    """Integration tests: text mode → template matching → confirm → generate."""
+    """Integration tests: text mode → template matching → confirm → generate.
+
+    TODO: adapt for V1 LangGraph pipeline — V1 uses POST /api/v1/jobs
+    with LangGraph astream_events instead of old generate.py SSE handlers.
+    """
 
     async def test_text_to_confirm_full_flow(
         self, client: TestClient, monkeypatch

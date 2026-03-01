@@ -1,4 +1,7 @@
-"""Tests for History API endpoints (list, detail, regenerate, delete)."""
+"""Tests for History/Jobs API endpoints (list, detail, regenerate, delete).
+
+Migrated to V1 paths: /api/v1/jobs (Phase 5a).
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -56,12 +59,12 @@ async def _create_test_job(
 
 
 # ---------------------------------------------------------------------------
-# List jobs
+# List jobs — /api/v1/jobs
 # ---------------------------------------------------------------------------
 
 class TestListJobs:
     async def test_empty_list(self, client: AsyncClient) -> None:
-        resp = await client.get("/api/jobs")
+        resp = await client.get("/api/v1/jobs")
         assert resp.status_code == 200
         data = resp.json()
         assert data["items"] == []
@@ -75,7 +78,7 @@ class TestListJobs:
             await _create_test_job(session, "job-1", input_text="gear")
             await _create_test_job(session, "job-2", input_text="plate")
 
-        resp = await client.get("/api/jobs")
+        resp = await client.get("/api/v1/jobs")
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] == 2
@@ -88,13 +91,13 @@ class TestListJobs:
             for i in range(5):
                 await _create_test_job(session, f"job-{i}", input_text=f"part-{i}")
 
-        resp = await client.get("/api/jobs?page=1&page_size=2")
+        resp = await client.get("/api/v1/jobs?page=1&page_size=2")
         data = resp.json()
         assert data["total"] == 5
         assert len(data["items"]) == 2
         assert data["page"] == 1
 
-        resp2 = await client.get("/api/jobs?page=3&page_size=2")
+        resp2 = await client.get("/api/v1/jobs?page=3&page_size=2")
         data2 = resp2.json()
         assert len(data2["items"]) == 1
 
@@ -105,7 +108,7 @@ class TestListJobs:
             await _create_test_job(session, "j-completed", status="completed")
             await _create_test_job(session, "j-failed", status="failed")
 
-        resp = await client.get("/api/jobs?status=completed")
+        resp = await client.get("/api/v1/jobs?status=completed")
         data = resp.json()
         assert data["total"] == 1
         assert data["items"][0]["job_id"] == "j-completed"
@@ -117,19 +120,19 @@ class TestListJobs:
             await _create_test_job(session, "j-text", input_type="text")
             await _create_test_job(session, "j-drawing", input_type="drawing")
 
-        resp = await client.get("/api/jobs?input_type=drawing")
+        resp = await client.get("/api/v1/jobs?input_type=drawing")
         data = resp.json()
         assert data["total"] == 1
         assert data["items"][0]["job_id"] == "j-drawing"
 
 
 # ---------------------------------------------------------------------------
-# Job detail
+# Job detail — /api/v1/jobs/{id}
 # ---------------------------------------------------------------------------
 
 class TestJobDetail:
     async def test_get_detail_not_found(self, client: AsyncClient) -> None:
-        resp = await client.get("/api/jobs/nonexistent")
+        resp = await client.get("/api/v1/jobs/nonexistent")
         assert resp.status_code == 404
 
     async def test_get_detail_returns_full_info(self, client: AsyncClient) -> None:
@@ -138,13 +141,20 @@ class TestJobDetail:
         async with async_session() as session:
             await _create_test_job(session, "detail-1", input_text="齿轮")
 
-        resp = await client.get("/api/jobs/detail-1")
+        resp = await client.get("/api/v1/jobs/detail-1")
         assert resp.status_code == 200
         data = resp.json()
         assert data["job_id"] == "detail-1"
         assert data["input_text"] == "齿轮"
         assert "corrections" in data
         assert data["corrections"] == []
+        # V1 新增字段验证
+        assert "intent" in data
+        assert "precise_spec" in data
+        assert "drawing_spec" in data
+        assert "drawing_spec_confirmed" in data
+        assert "image_path" in data
+        assert "recommendations" in data
 
     async def test_detail_includes_corrections(self, client: AsyncClient) -> None:
         from backend.db.database import async_session
@@ -161,7 +171,7 @@ class TestJobDetail:
             )
             await session.commit()
 
-        resp = await client.get("/api/jobs/detail-corr")
+        resp = await client.get("/api/v1/jobs/detail-corr")
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["corrections"]) == 1
@@ -186,7 +196,7 @@ class TestJobDetail:
         ]))
 
         try:
-            resp = await client.get("/api/jobs/detail-json-fb")
+            resp = await client.get("/api/v1/jobs/detail-json-fb")
             assert resp.status_code == 200
             data = resp.json()
             assert len(data["corrections"]) == 1
@@ -209,7 +219,7 @@ class TestJobDetail:
         corr_file.write_text("{broken json!!!")
 
         try:
-            resp = await client.get("/api/jobs/detail-corrupt")
+            resp = await client.get("/api/v1/jobs/detail-corrupt")
             assert resp.status_code == 200
             data = resp.json()
             # Should return empty corrections, not crash
@@ -219,12 +229,12 @@ class TestJobDetail:
 
 
 # ---------------------------------------------------------------------------
-# Regenerate
+# Regenerate — /api/v1/jobs/{id}/regenerate
 # ---------------------------------------------------------------------------
 
 class TestRegenerate:
     async def test_regenerate_not_found(self, client: AsyncClient) -> None:
-        resp = await client.post("/api/jobs/nonexistent/regenerate")
+        resp = await client.post("/api/v1/jobs/nonexistent/regenerate")
         assert resp.status_code == 404
 
     async def test_regenerate_clones_job(self, client: AsyncClient) -> None:
@@ -235,7 +245,7 @@ class TestRegenerate:
                 session, "regen-orig", input_type="text", input_text="支架",
             )
 
-        resp = await client.post("/api/jobs/regen-orig/regenerate")
+        resp = await client.post("/api/v1/jobs/regen-orig/regenerate")
         assert resp.status_code == 200
         data = resp.json()
         assert data["cloned_from"] == "regen-orig"
@@ -243,17 +253,17 @@ class TestRegenerate:
         assert data["job_id"] != "regen-orig"
 
         # Verify new job exists
-        resp2 = await client.get(f"/api/jobs/{data['job_id']}")
+        resp2 = await client.get(f"/api/v1/jobs/{data['job_id']}")
         assert resp2.status_code == 200
 
 
 # ---------------------------------------------------------------------------
-# Delete
+# Delete — /api/v1/jobs/{id}
 # ---------------------------------------------------------------------------
 
 class TestDelete:
     async def test_delete_not_found(self, client: AsyncClient) -> None:
-        resp = await client.delete("/api/jobs/nonexistent")
+        resp = await client.delete("/api/v1/jobs/nonexistent")
         assert resp.status_code == 404
 
     async def test_delete_marks_as_deleted(self, client: AsyncClient) -> None:
@@ -262,15 +272,18 @@ class TestDelete:
         async with async_session() as session:
             await _create_test_job(session, "to-delete")
 
-        resp = await client.delete("/api/jobs/to-delete")
+        resp = await client.delete("/api/v1/jobs/to-delete")
         assert resp.status_code == 200
-        assert resp.json()["deleted"] == "true"
+        # V1 soft_delete returns {"job_id": ..., "status": "deleted"}
+        data = resp.json()
+        assert data["job_id"] == "to-delete"
+        assert data["status"] == "deleted"
 
-        # Verify job status changed
-        resp2 = await client.get("/api/jobs/to-delete")
+        # Verify job status changed (soft_delete sets status=failed, error="deleted by user")
+        resp2 = await client.get("/api/v1/jobs/to-delete")
         assert resp2.status_code == 200
         assert resp2.json()["status"] == "failed"
-        assert resp2.json()["error"] == "deleted"
+        assert resp2.json()["error"] == "deleted by user"
 
     async def test_delete_preserves_corrections(self, client: AsyncClient) -> None:
         """Deleting a job should keep corrections accessible via detail endpoint."""
@@ -289,14 +302,32 @@ class TestDelete:
             await session.commit()
 
         # Delete the job
-        resp = await client.delete("/api/jobs/del-with-corr")
+        resp = await client.delete("/api/v1/jobs/del-with-corr")
         assert resp.status_code == 200
 
         # Corrections should still be visible in detail
-        resp2 = await client.get("/api/jobs/del-with-corr")
+        resp2 = await client.get("/api/v1/jobs/del-with-corr")
         assert resp2.status_code == 200
         data = resp2.json()
         assert data["status"] == "failed"
-        assert data["error"] == "deleted"
+        assert data["error"] == "deleted by user"
         assert len(data["corrections"]) == 1
         assert data["corrections"][0]["field_path"] == "part_type"
+
+    async def test_deleted_job_excluded_from_list(self, client: AsyncClient) -> None:
+        """Soft-deleted jobs should not appear in list endpoint."""
+        from backend.db.database import async_session
+
+        async with async_session() as session:
+            await _create_test_job(session, "del-list-test")
+
+        # Verify it appears in list
+        resp = await client.get("/api/v1/jobs")
+        assert resp.json()["total"] == 1
+
+        # Delete it
+        await client.delete("/api/v1/jobs/del-list-test")
+
+        # Should be excluded from list
+        resp2 = await client.get("/api/v1/jobs")
+        assert resp2.json()["total"] == 0
