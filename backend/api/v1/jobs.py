@@ -32,8 +32,7 @@ from backend.models.job import (
 )
 
 # SSE 格式化辅助（pipeline helper 由 LangGraph 节点替代）
-from backend.api.generate import _sse  # noqa: E402
-from backend.api.v1.events import emit_event  # bridge graph events → GET /events subscribers
+from backend.api.v1.events import _sse, emit_event
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
