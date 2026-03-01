@@ -49,7 +49,7 @@ export default function RunBenchmark() {
     setCompleted(false);
 
     const source = createSSEConnection(
-      `/api/benchmark/run?dataset=${encodeURIComponent(selectedDataset)}`,
+      `/api/v1/benchmark/run?dataset=${encodeURIComponent(selectedDataset)}`,
       {
         onProgress: (data) => {
           setProgress(data as BenchmarkProgressEvent);

@@ -103,17 +103,17 @@ export function createSSEConnection(
 
 // Benchmark API
 export async function getBenchmarkHistory(): Promise<BenchmarkSummary[]> {
-  const { data } = await api.get<BenchmarkSummary[]>('/benchmark/history');
+  const { data } = await api.get<BenchmarkSummary[]>('/v1/benchmark/history');
   return data;
 }
 
 export async function getBenchmarkReport(runId: string): Promise<BenchmarkReport> {
-  const { data } = await api.get<BenchmarkReport>(`/benchmark/history/${runId}`);
+  const { data } = await api.get<BenchmarkReport>(`/v1/benchmark/history/${runId}`);
   return data;
 }
 
 export async function getBenchmarkDatasets(): Promise<string[]> {
-  const { data } = await api.get<string[]>('/benchmark/datasets');
+  const { data } = await api.get<string[]>('/v1/benchmark/datasets');
   return data;
 }
 
@@ -164,26 +164,26 @@ export async function validateTemplateParams(
 
 // Standards API
 export async function getStandardCategories(): Promise<string[]> {
-  const { data } = await api.get<string[]>('/standards');
+  const { data } = await api.get<string[]>('/v1/standards');
   return data;
 }
 
 export async function getStandardEntries(category: string): Promise<StandardEntry[]> {
-  const { data } = await api.get<StandardEntry[]>(`/standards/${category}`);
+  const { data } = await api.get<StandardEntry[]>(`/v1/standards/${category}`);
   return data;
 }
 
 export async function recommendParams(
   request: RecommendRequest,
 ): Promise<RecommendResponse> {
-  const { data } = await api.post<RecommendResponse>('/standards/recommend', request);
+  const { data } = await api.post<RecommendResponse>('/v1/standards/recommend', request);
   return data;
 }
 
 export async function checkConstraints(
   request: CheckRequest,
 ): Promise<CheckResponse> {
-  const { data } = await api.post<CheckResponse>('/standards/check', request);
+  const { data } = await api.post<CheckResponse>('/v1/standards/check', request);
   return data;
 }
 
@@ -192,7 +192,7 @@ export async function listPrintProfiles(): Promise<
   Array<PrintProfile & { is_preset: boolean }>
 > {
   const { data } = await api.get<Array<PrintProfile & { is_preset: boolean }>>(
-    '/print-profiles',
+    '/v1/print-profiles',
   );
   return data;
 }
@@ -201,7 +201,7 @@ export async function createPrintProfile(
   body: Record<string, unknown>,
 ): Promise<PrintProfile & { is_preset: boolean }> {
   const { data } = await api.post<PrintProfile & { is_preset: boolean }>(
-    '/print-profiles',
+    '/v1/print-profiles',
     body,
   );
   return data;
@@ -212,14 +212,14 @@ export async function updatePrintProfile(
   body: Record<string, unknown>,
 ): Promise<PrintProfile & { is_preset: boolean }> {
   const { data } = await api.put<PrintProfile & { is_preset: boolean }>(
-    `/print-profiles/${name}`,
+    `/v1/print-profiles/${name}`,
     body,
   );
   return data;
 }
 
 export async function deletePrintProfile(name: string): Promise<void> {
-  await api.delete(`/print-profiles/${name}`);
+  await api.delete(`/v1/print-profiles/${name}`);
 }
 
 // History API

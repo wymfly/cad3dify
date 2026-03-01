@@ -83,7 +83,7 @@ export default function JobDetailPage() {
   const handleDownload = async (format: string) => {
     if (!jobId) return;
     try {
-      const { data } = await api.post('/export', { job_id: jobId, config: { format } }, { responseType: 'blob' });
+      const { data } = await api.post(`/v1/jobs/${jobId}/export`, { config: { format } }, { responseType: 'blob' });
       const ext = format === 'gltf' ? 'glb' : format;
       const url = URL.createObjectURL(data as Blob);
       const a = document.createElement('a');

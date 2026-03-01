@@ -8,11 +8,10 @@ interface DownloadButtonsProps {
 export default function DownloadButtons({ jobId }: DownloadButtonsProps) {
   const handleDownload = async (format: string) => {
     try {
-      const resp = await fetch('/api/export', {
+      const resp = await fetch(`/api/v1/jobs/${jobId}/export`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          job_id: jobId,
           config: { format },
         }),
       });

@@ -37,10 +37,10 @@ export default function DownloadPanel({
   const handleDownload = async (format: string) => {
     setDownloading(format);
     try {
-      const resp = await fetch('/api/v1/export', {
+      const resp = await fetch(`/api/v1/jobs/${jobId}/export`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ job_id: jobId, config: { format } }),
+        body: JSON.stringify({ config: { format } }),
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ detail: '下载失败' }));

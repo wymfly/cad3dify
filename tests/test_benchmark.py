@@ -192,7 +192,7 @@ class TestBenchmarkAPI:
         from backend.main import app
 
         client = TestClient(app)
-        resp = client.get("/api/benchmark/history")
+        resp = client.get("/api/v1/benchmark/history")
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
 
@@ -201,5 +201,5 @@ class TestBenchmarkAPI:
         from backend.main import app
 
         client = TestClient(app)
-        resp = client.get("/api/benchmark/history/nonexistent_id")
+        resp = client.get("/api/v1/benchmark/history/nonexistent_id")
         assert resp.status_code == 404

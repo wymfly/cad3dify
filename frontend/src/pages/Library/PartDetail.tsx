@@ -104,8 +104,8 @@ export default function PartDetail() {
       setDownloading(format);
       try {
         const { data } = await api.post(
-          '/export',
-          { job_id: jobId, config: { format } },
+          `/v1/jobs/${jobId}/export`,
+          { config: { format } },
           { responseType: 'blob' },
         );
         const ext = format === 'gltf' ? 'glb' : format;
