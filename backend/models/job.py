@@ -44,6 +44,7 @@ class Job(BaseModel):
     drawing_spec: Optional[dict[str, Any]] = None
     drawing_spec_confirmed: Optional[dict[str, Any]] = None
     image_path: Optional[str] = None
+    organic_spec: Optional[dict[str, Any]] = None
     result: Optional[dict[str, Any]] = None
     printability: Optional[dict[str, Any]] = None
     error: Optional[str] = None
@@ -77,6 +78,7 @@ def _orm_to_job(orm: Any) -> Job:
         drawing_spec=orm.drawing_spec,
         drawing_spec_confirmed=orm.drawing_spec_confirmed,
         image_path=orm.image_path,
+        organic_spec=getattr(orm, "organic_spec", None),
         result=orm.result,
         printability=orm.printability_result,
         error=orm.error,

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TypedDict
+import operator
+from typing import Annotated, TypedDict
 
 
 class CadJobState(TypedDict, total=False):
@@ -27,6 +28,17 @@ class CadJobState(TypedDict, total=False):
     model_url: str | None        # GLB preview URL
     printability: dict | None
 
+    # ── Organic outputs ──
+    organic_spec: dict | None            # OrganicSpec.model_dump()
+    organic_provider: str | None         # "auto" | "tripo3d" | "hunyuan3d"
+    organic_quality_mode: str | None     # "draft" | "standard" | "high"
+    organic_reference_image: str | None  # uploaded file_id
+    organic_constraints: dict | None     # {bounding_box, engineering_cuts}
+    raw_mesh_path: str | None
+    mesh_stats: dict | None
+    organic_warnings: Annotated[list[str], operator.add]
+    organic_result: dict | None          # {model_url, stl_url, threemf_url, ...}
+
     # ── Status & error ──
     status: str                  # mirrors JobStatus value
     error: str | None
@@ -39,4 +51,6 @@ STATE_TO_ORM_MAPPING: dict[str, str] = {
     "printability": "printability_result",
     # step_path and model_url are assembled into the ORM `result` JSON column
     # by finalize_node — no direct 1:1 mapping needed here.
+    # organic_spec is saved to DB directly in analyze_organic_node,
+    # organic_result is assembled into `result` JSON column by finalize_node.
 }

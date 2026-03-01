@@ -28,6 +28,7 @@ class JobModel(Base):
     image_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     recommendations: Mapped[list] = mapped_column(JSON, default=list)
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    organic_spec: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     printability_result: Mapped[dict | None] = mapped_column(
         JSON, nullable=True,
     )

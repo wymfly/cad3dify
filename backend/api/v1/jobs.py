@@ -50,6 +50,8 @@ class CreateJobRequest(BaseModel):
     prompt: str = ""  # organic 模式
     provider: str = "auto"  # organic 模式
     quality_mode: str = "standard"  # organic 模式
+    reference_image: str | None = None  # organic: uploaded file_id
+    constraints: dict[str, Any] | None = None  # organic: {bounding_box, engineering_cuts}
     pipeline_config: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -90,6 +92,7 @@ class JobDetailResponse(BaseModel):
     drawing_spec: dict[str, Any] | None = None
     drawing_spec_confirmed: dict[str, Any] | None = None
     image_path: str | None = None
+    organic_spec: dict[str, Any] | None = None
     recommendations: list[dict[str, Any]] = Field(default_factory=list)
     corrections: list[CorrectionItem] = Field(default_factory=list)
 
@@ -157,6 +160,7 @@ def _job_to_detail(job: Job, corrections: list[CorrectionItem] | None = None) ->
         drawing_spec=job.drawing_spec,
         drawing_spec_confirmed=job.drawing_spec_confirmed,
         image_path=job.image_path,
+        organic_spec=job.organic_spec,
         recommendations=job.recommendations,
         corrections=corrections or [],
     )
@@ -183,18 +187,35 @@ async def create_job_endpoint(body: CreateJobRequest, request: Request) -> Event
             message=f"不支持的 input_type: {body.input_type!r}，可选值: text | organic | drawing",
         )
 
+    # Organic mode: validate input_text or reference_image is provided
+    if body.input_type == "organic":
+        input_text = body.text or body.prompt
+        if not input_text and not body.reference_image:
+            raise APIError(
+                status_code=422,
+                code=ErrorCode.VALIDATION_FAILED,
+                message="organic 模式需要提供文本描述 (text/prompt) 或参考图 (reference_image)",
+            )
+
     job_id = str(uuid.uuid4())
     input_text = body.text or body.prompt
     cad_graph = request.app.state.cad_graph
     config = {"configurable": {"thread_id": job_id}}
 
-    initial_state = {
+    initial_state: dict[str, Any] = {
         "job_id": job_id,
         "input_type": body.input_type,
         "input_text": input_text,
         "image_path": None,
         "status": "pending",
     }
+
+    # Map organic-specific fields to initial state
+    if body.input_type == "organic":
+        initial_state["organic_provider"] = body.provider
+        initial_state["organic_quality_mode"] = body.quality_mode
+        initial_state["organic_reference_image"] = body.reference_image
+        initial_state["organic_constraints"] = body.constraints
 
     async def event_stream() -> AsyncGenerator[dict[str, str], None]:
         async for event in cad_graph.astream_events(initial_state, config=config, version="v2"):
@@ -423,11 +444,33 @@ async def confirm_job(job_id: str, body: ConfirmRequest, request: Request) -> Ev
     cad_graph = request.app.state.cad_graph
     config = {"configurable": {"thread_id": job_id}}
 
-    resume_data = {
-        "confirmed_params": body.confirmed_params,
-        "confirmed_spec": body.confirmed_spec,
-        "disclaimer_accepted": body.disclaimer_accepted,
-    }
+    is_organic = job.input_type == "organic"
+
+    if is_organic:
+        # Organic: use confirmed_spec (dict[str, Any]) for string overrides
+        resume_data: dict[str, Any] = {
+            "disclaimer_accepted": body.disclaimer_accepted,
+        }
+        if body.confirmed_spec:
+            spec_overrides = body.confirmed_spec
+            if "quality_mode" in spec_overrides:
+                resume_data["organic_quality_mode"] = spec_overrides["quality_mode"]
+            if "provider" in spec_overrides:
+                resume_data["organic_provider"] = spec_overrides["provider"]
+            if "prompt_en" in spec_overrides:
+                # Merge edited prompt into organic_spec
+                resume_data.setdefault("organic_spec", {})
+                resume_data["organic_spec"]["prompt_en"] = spec_overrides["prompt_en"]
+            if "bounding_box" in spec_overrides:
+                resume_data.setdefault("organic_spec", {})
+                resume_data["organic_spec"]["final_bounding_box"] = spec_overrides["bounding_box"]
+    else:
+        # Text/Drawing: use confirmed_params (dict[str, float]) for Pydantic coercion
+        resume_data = {
+            "confirmed_params": body.confirmed_params,
+            "confirmed_spec": body.confirmed_spec,
+            "disclaimer_accepted": body.disclaimer_accepted,
+        }
 
     async def event_stream() -> AsyncGenerator[dict[str, str], None]:
         async for event in cad_graph.astream_events(
