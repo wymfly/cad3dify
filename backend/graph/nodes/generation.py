@@ -81,6 +81,10 @@ async def generate_step_text_node(state: CadJobState) -> dict[str, Any]:
     except Exception as exc:
         reason = map_exception_to_failure_reason(exc)
         logger.error("Text generation failed: %s (%s)", exc, reason)
+        await _safe_dispatch(
+            "job.failed",
+            {"job_id": state["job_id"], "error": str(exc), "failure_reason": reason, "status": "failed"},
+        )
         return {"error": str(exc), "failure_reason": reason, "status": "failed"}
 
     _duration = _time.time() - _t0

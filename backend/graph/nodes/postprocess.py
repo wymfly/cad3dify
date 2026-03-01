@@ -75,9 +75,11 @@ async def check_printability_node(state: CadJobState) -> dict[str, Any]:
         for r in new_recs
     ]
 
-    # Merge with existing recommendations from analysis phase
+    # Merge with existing recommendations from analysis phase (dedup by action)
     existing_recs = list(state.get("recommendations") or [])
-    all_recs = existing_recs + rec_dicts
+    seen_actions = {r.get("action") for r in existing_recs if r.get("action")}
+    deduped_new = [r for r in rec_dicts if r.get("action") not in seen_actions]
+    all_recs = existing_recs + deduped_new
 
     await _safe_dispatch(
         "job.printability_ready",
@@ -97,6 +99,7 @@ async def check_printability_node(state: CadJobState) -> dict[str, Any]:
                 "printability": result,
                 "recommendations": all_recs,
                 "error": f"Printability check failed: {error_msgs}",
+                "failure_reason": "printability_error",
                 "status": "failed",
             }
 

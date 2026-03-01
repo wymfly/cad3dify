@@ -99,7 +99,8 @@ async def analyze_intent_node(state: CadJobState) -> dict[str, Any]:
         if part_type:
             candidates = engine.find_matches(part_type)
         else:
-            candidates = engine.list_templates()
+            # No part_type: skip template matching to avoid selecting wrong type
+            candidates = []
 
         known = intent.get("known_params", {}) if isinstance(intent, dict) else {}
         ranked = rank_templates(candidates, known)
@@ -115,8 +116,8 @@ async def analyze_intent_node(state: CadJobState) -> dict[str, Any]:
                 elif p.display_name and p.display_name in known:
                     d["default"] = known[p.display_name]
                 template_params.append(d)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Template matching skipped: %s", exc)
 
     # Engineering standards recommendations (best-effort)
     recommendations: list[dict] = []
@@ -131,8 +132,8 @@ async def analyze_intent_node(state: CadJobState) -> dict[str, Any]:
             standards = EngineeringStandards()
             recs = standards.recommend_params(part_type_for_rec, known_for_rec)
             recommendations = [r.model_dump() for r in recs]
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Engineering standards recommendations skipped: %s", exc)
 
     await _safe_dispatch(
         "job.intent_analyzed",

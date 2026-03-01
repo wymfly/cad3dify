@@ -90,8 +90,10 @@ class SpecCompiler:
         engine = TemplateEngine.from_directory(self._templates_dir)
 
         # Validate params before rendering (errors are non-fatal warnings)
+        errors: list[str] = []
         validation_errors = engine.validate(template_name, params)
         if validation_errors:
+            errors = [str(e) for e in validation_errors]
             logger.warning(
                 "Template '%s' param validation warnings: %s",
                 template_name,
@@ -112,6 +114,7 @@ class SpecCompiler:
             template_name=template_name,
             step_path=output_path,
             cadquery_code=code,
+            errors=errors,
         )
 
     def _compile_from_llm(

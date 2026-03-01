@@ -35,7 +35,14 @@ class InterceptorRegistry:
         node_fn: Callable[..., Awaitable[dict[str, Any]]],
         after: str,
     ) -> None:
-        """Register a node to be inserted after *after* in the workflow."""
+        """Register a node to be inserted after *after* in the workflow.
+
+        Currently supported insertion points (see ``builder.py``):
+        - ``"convert_preview"`` — between GLB preview and printability check.
+
+        Other values are accepted but will have no effect until the builder
+        is updated to handle additional insertion points.
+        """
         self._entries.append(_InterceptorEntry(name=name, node_fn=node_fn, after=after))
 
     def clear(self) -> None:
