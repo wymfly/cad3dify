@@ -1,7 +1,7 @@
 """LangGraph CAD Job orchestration.
 
 Supports two builder modes:
-- Legacy (default): hand-coded StateGraph in builder.py
+- Legacy (default): hand-coded StateGraph in builder_legacy.py
 - New (USE_NEW_BUILDER=1): dynamic graph from @register_node in builder_new.py
 """
 
@@ -11,8 +11,8 @@ import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from backend.graph.builder import build_graph as build_graph
-    from backend.graph.builder import get_compiled_graph as get_compiled_graph
+    from backend.graph.builder_legacy import build_graph as build_graph
+    from backend.graph.builder_legacy import get_compiled_graph as get_compiled_graph
 
 __all__ = ["build_graph", "get_compiled_graph"]
 
@@ -38,6 +38,6 @@ def __getattr__(name: str):
 
                 return _build_graph
         else:
-            from backend.graph import builder
-            return getattr(builder, name)
+            from backend.graph import builder_legacy
+            return getattr(builder_legacy, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
