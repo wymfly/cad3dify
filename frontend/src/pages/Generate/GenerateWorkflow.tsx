@@ -25,6 +25,7 @@ export interface WorkflowState {
   stepPath: string | null;
   templateName: string | null;
   printability: PrintabilityResult | null;
+  dfamGlbUrl: string | null;
   drawingSpec: DrawingSpec | null;
 }
 
@@ -105,6 +106,7 @@ export function useGenerateWorkflow() {
     stepPath: null,
     templateName: null,
     printability: null,
+    dfamGlbUrl: null,
     drawingSpec: null,
   });
   const abortRef = useRef<AbortController | null>(null);
@@ -125,6 +127,7 @@ export function useGenerateWorkflow() {
       stepPath: null,
       templateName: null,
       printability: null,
+      dfamGlbUrl: null,
       drawingSpec: null,
     });
 
@@ -205,6 +208,7 @@ export function useGenerateWorkflow() {
       stepPath: null,
       templateName: null,
       printability: null,
+      dfamGlbUrl: null,
       drawingSpec: null,
     });
 
@@ -288,6 +292,7 @@ export function useGenerateWorkflow() {
       stepPath: null,
       templateName: null,
       printability: null,
+      dfamGlbUrl: null,
       drawingSpec: null,
     });
   }, []);
@@ -352,6 +357,7 @@ function handleSSEEvent(
         modelUrl: (evt.model_url as string | undefined) ?? null,
         stepPath: (evt.step_path as string | undefined) ?? null,
         printability: (evt.printability as PrintabilityResult | undefined) ?? null,
+        dfamGlbUrl: (evt.dfam_glb_url as string | undefined) ?? null,
       }));
       break;
     case 'failed':

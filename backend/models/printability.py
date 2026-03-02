@@ -66,6 +66,7 @@ class PrintIssue(BaseModel):
     value: Optional[float] = None
     threshold: Optional[float] = None
     suggestion: str = ""
+    region: Optional[dict] = None  # {"center": [x,y,z], "radius": float}
 
 
 # ---------------------------------------------------------------------------

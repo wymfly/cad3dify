@@ -39,6 +39,7 @@ dependencies = [
     # LangGraph pipeline orchestration
     "langgraph>=0.3.0,<1.0",
     "langgraph-checkpoint-sqlite>=3.0.3",
+    "scipy>=1.15.3",
 ]
 
 [project.optional-dependencies]

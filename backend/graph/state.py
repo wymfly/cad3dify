@@ -29,6 +29,10 @@ class CadJobState(TypedDict, total=False):
     printability: dict | None
     recommendations: list[dict] | None  # ParamRecommendation / PostProcessRecommendation
 
+    # ── DfAM analysis outputs ──
+    dfam_glb_url: str | None
+    dfam_stats: dict | None
+
     # ── Organic outputs ──
     organic_spec: dict | None            # OrganicSpec.model_dump()
     organic_provider: str | None         # "auto" | "tripo3d" | "hunyuan3d"

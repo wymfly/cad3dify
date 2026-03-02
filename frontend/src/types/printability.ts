@@ -15,6 +15,7 @@ export interface PrintIssue {
   value?: number;
   threshold?: number;
   suggestion: string;
+  region?: { center: number[]; radius: number } | null;
 }
 
 export interface MaterialEstimate {
