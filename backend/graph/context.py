@@ -118,6 +118,7 @@ class NodeContext:
         self._new_data: dict[str, Any] = {}
         self._trace_entries: list[dict[str, Any]] = []
         self._fallback_trace: dict[str, Any] | None = None
+        self.asset_store: Any = None  # Optional[AssetStore]
 
     # -- Legacy dict-like access (backward compat for CadJobState nodes) --
 
@@ -171,6 +172,29 @@ class NodeContext:
 
     def has_asset(self, key: str) -> bool:
         return self._assets.has(key)
+
+    def save_asset(
+        self,
+        name: str,
+        data: bytes,
+        fmt: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        """Persist asset via AssetStore and register metadata.
+
+        For nodes producing in-memory bytes. Use put_asset() instead
+        when the file already exists on disk.
+        """
+        if self.asset_store is None:
+            raise RuntimeError(
+                "No AssetStore configured. Use put_asset() for "
+                "direct path registration, or configure an AssetStore."
+            )
+        uri = self.asset_store.save(
+            job_id=self.job_id, name=name, data=data, fmt=fmt,
+        )
+        self.put_asset(name, uri, fmt, metadata)
+        return uri
 
     # -- Data access --
 

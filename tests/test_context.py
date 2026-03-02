@@ -526,3 +526,58 @@ class TestExecuteWithFallback:
         result = await ctx.execute_with_fallback()
         assert result == {"result": "neural"}
         assert ctx._fallback_trace["fallback_triggered"] is True
+
+
+# ---------------------------------------------------------------------------
+# save_asset() — AssetStore integration
+# ---------------------------------------------------------------------------
+
+class TestNodeContextSaveAsset:
+    def test_save_asset_stores_and_registers(self, tmp_path):
+        from backend.graph.asset_store import LocalAssetStore
+
+        store = LocalAssetStore(workspace=tmp_path)
+        desc = _make_descriptor()
+        ctx = NodeContext.from_state({"job_id": "j1"}, desc)
+        ctx.asset_store = store
+
+        uri = ctx.save_asset(
+            name="mesh", data=b"mesh_data", fmt="obj",
+            metadata={"vertices": 12000},
+        )
+
+        assert uri.startswith("file://")
+        assert "mesh.obj" in uri
+        assert ctx.has_asset("mesh")
+        entry = ctx.get_asset("mesh")
+        assert entry.format == "obj"
+        assert entry.metadata == {"vertices": 12000}
+        assert entry.path == uri
+
+    def test_save_asset_appears_in_state_diff(self, tmp_path):
+        from backend.graph.asset_store import LocalAssetStore
+
+        store = LocalAssetStore(workspace=tmp_path)
+        desc = _make_descriptor()
+        ctx = NodeContext.from_state({"job_id": "j1"}, desc)
+        ctx.asset_store = store
+
+        ctx.save_asset(name="out", data=b"data", fmt="stl")
+
+        diff = ctx.to_state_diff()
+        assert "out" in diff["assets"]
+
+    def test_save_asset_without_store_raises(self):
+        desc = _make_descriptor()
+        ctx = NodeContext.from_state({}, desc)
+
+        with pytest.raises(RuntimeError, match="AssetStore"):
+            ctx.save_asset(name="x", data=b"y", fmt="z")
+
+    def test_put_asset_still_works_without_store(self):
+        """Backward compat: put_asset works as before without AssetStore."""
+        desc = _make_descriptor()
+        ctx = NodeContext.from_state({}, desc)
+
+        ctx.put_asset("mesh", "/tmp/mesh.obj", "OBJ")
+        assert ctx.has_asset("mesh")
