@@ -171,14 +171,20 @@ class PipelineBuilder:
 
         For simple linear edges (single successor), we use add_edge.
 
-        For multiple successors with overlapping input_types (transitive edges
-        from OR deps), connect to the earliest in topological order — others
-        are reachable through the dependency chain.
+        For multiple successors with overlapping input_types, we check
+        reachability: if all skipped nodes are reachable from the earliest
+        successor (transitive edges from OR deps), connect only to the
+        earliest.  Otherwise, fan-out to all unreachable nodes.
         """
         # Build adjacency from resolved edges
         adjacency: dict[str, list[str]] = {}
         for src, dst in resolved.edges:
             adjacency.setdefault(src, []).append(dst)
+
+        # Full adjacency for reachability checks
+        full_adj: dict[str, set[str]] = {}
+        for src, dst in resolved.edges:
+            full_adj.setdefault(src, set()).add(dst)
 
         node_map = {d.name: d for d in resolved.ordered_nodes}
         topo_order = {d.name: i for i, d in enumerate(resolved.ordered_nodes)}
@@ -203,17 +209,68 @@ class PipelineBuilder:
                         {name: name for name in dst_names},
                     )
                 else:
-                    # Overlapping input_types — connect to earliest in topo order.
-                    # Others are reachable through the dependency chain.
+                    # Overlapping input_types — check reachability to decide
+                    # single edge vs fan-out.
                     first = min(dst_names, key=lambda n: topo_order.get(n, float("inf")))
-                    workflow.add_edge(src_name, first)
-                    if len(dst_names) > 1:
-                        skipped = [n for n in dst_names if n != first]
-                        logger.debug(
-                            "Node '%s': connecting to '%s' (earliest successor); "
-                            "%s reachable through dependency chain",
-                            src_name, first, skipped,
+
+                    # BFS from first to find reachable nodes
+                    reachable: set[str] = set()
+                    stack = [first]
+                    while stack:
+                        current = stack.pop()
+                        for nxt in full_adj.get(current, set()):
+                            if nxt not in reachable:
+                                reachable.add(nxt)
+                                stack.append(nxt)
+
+                    unreachable = [n for n in dst_names if n != first and n not in reachable]
+
+                    if not unreachable:
+                        # All skipped nodes reachable from first — single edge
+                        workflow.add_edge(src_name, first)
+                        if len(dst_names) > 1:
+                            skipped = [n for n in dst_names if n != first]
+                            logger.debug(
+                                "Node '%s': connecting to '%s' (earliest successor); "
+                                "%s reachable through dependency chain",
+                                src_name, first, skipped,
+                            )
+                    else:
+                        # Some nodes NOT reachable — fan-out
+                        fan_out_targets = sorted(
+                            [first] + unreachable,
+                            key=lambda n: topo_order.get(n, float("inf")),
                         )
+                        self._add_fan_out(
+                            workflow, src_name, fan_out_targets, node_map,
+                        )
+                        logger.debug(
+                            "Node '%s': fan-out to %s (unreachable from '%s': %s)",
+                            src_name, fan_out_targets, first, unreachable,
+                        )
+
+    def _add_fan_out(
+        self,
+        workflow: StateGraph,
+        src_name: str,
+        targets: list[str],
+        node_map: dict[str, NodeDescriptor],
+    ) -> None:
+        """Add fan-out edges from src to multiple targets (parallel execution)."""
+        terminal = next(
+            (d.name for d in node_map.values() if d.is_terminal), None,
+        )
+        frozen_targets = list(targets)
+
+        def router(state: dict[str, Any]) -> list[str] | str:
+            if state.get("status") == "failed" and terminal:
+                return terminal
+            return frozen_targets
+
+        path_map = {name: name for name in targets}
+        if terminal and terminal not in path_map:
+            path_map[terminal] = terminal
+        workflow.add_conditional_edges(src_name, router, path_map)
 
     def _build_input_type_routing(
         self,

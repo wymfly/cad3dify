@@ -360,7 +360,7 @@ async def create_drawing_job(
     else:
         pipeline_cfg = pc.model_dump()
 
-    initial_state = {
+    initial_state: dict[str, Any] = {
         "job_id": job_id,
         "input_type": "drawing",
         "input_text": None,
@@ -368,6 +368,10 @@ async def create_drawing_job(
         "pipeline_config": pipeline_cfg,
         "status": "pending",
     }
+    if use_new:
+        initial_state["assets"] = {}
+        initial_state["data"] = {}
+        initial_state["node_trace"] = []
 
     async def event_stream() -> AsyncGenerator[dict[str, str], None]:
         async for event in cad_graph.astream_events(initial_state, config=config, version="v2"):

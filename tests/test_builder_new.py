@@ -269,9 +269,10 @@ class TestRouterFallback:
         input_type_map = [("text", "text_a"), ("drawing", "draw_a")]
         router = builder._make_router(desc, input_type_map, node_map)
 
-        # Unknown input_type should route deterministically (sorted first)
+        # Unknown input_type should route to sorted-first destination
         result1 = router({"input_type": "unknown"})
         result2 = router({"input_type": "another_unknown"})
+        assert result1 == "draw_a"  # sorted first: ["draw_a", "text_a"]
         assert result1 == result2  # same fallback every time
 
     def test_overlapping_input_types_connects_first(self):
@@ -287,6 +288,51 @@ class TestRouterFallback:
         resolved = DependencyResolver.resolve_all(reg, {})
         builder = PipelineBuilder()
         # Should NOT raise — connects to earliest in topo order
+        graph = builder.build(resolved)
+        compiled = graph.compile()
+        assert compiled is not None
+
+
+class TestFanOut:
+    """Tests for fan-out when successors are unreachable from earliest."""
+
+    def test_fan_out_for_unreachable_successors(self):
+        """When multiple successors are NOT reachable from first, builder fans out."""
+        descs = [
+            _desc("create", is_entry=True, produces=["job"]),
+            _desc("gen", requires=["job"], produces=["model"]),
+            _desc("preview", requires=[["model"]], produces=["glb"],
+                  input_types=["text", "drawing"]),
+            _desc("check", requires=[["model"]], produces=["report"]),
+            _desc("dfam", requires=[["model"]], produces=["heatmap"],
+                  non_fatal=True),
+            _desc("fin", is_terminal=True),
+        ]
+        reg = NodeRegistry()
+        for d in descs:
+            reg.register(d)
+        resolved = DependencyResolver.resolve(reg, {}, input_type="text")
+        builder = PipelineBuilder()
+        graph = builder.build(resolved)
+        compiled = graph.compile()
+        assert compiled is not None
+
+        # All three post-process nodes should be in resolved pipeline
+        names = {d.name for d in resolved.ordered_nodes}
+        assert {"preview", "check", "dfam"}.issubset(names)
+
+    def test_transitive_edge_single_connection(self):
+        """When skipped node IS reachable from first, single edge suffices."""
+        descs = [
+            _desc("create", is_entry=True, produces=["job"]),
+            _desc("a", requires=["job"], produces=["out"]),
+            _desc("b", requires=["job", "out"], is_terminal=True),
+        ]
+        reg = NodeRegistry()
+        for d in descs:
+            reg.register(d)
+        resolved = DependencyResolver.resolve_all(reg, {})
+        builder = PipelineBuilder()
         graph = builder.build(resolved)
         compiled = graph.compile()
         assert compiled is not None

@@ -71,6 +71,8 @@ async def validate_pipeline_config(request: Request) -> dict[str, Any]:
 
     input_type = body.get("input_type")
     config = body.get("config", {})
+    if not isinstance(config, dict):
+        return {"valid": False, "error": "config must be a JSON object"}
 
     try:
         resolved = DependencyResolver.resolve(registry, config, input_type)
