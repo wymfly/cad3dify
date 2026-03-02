@@ -284,3 +284,114 @@ class TestNodeContextStateDiff:
         diff = ctx.to_state_diff()
         assert len(diff["node_trace"]) == 1
         assert diff["node_trace"][0]["elapsed_ms"] == 100
+
+
+# ---------------------------------------------------------------------------
+# get_strategy() auto mode
+# ---------------------------------------------------------------------------
+
+class TestGetStrategyAutoMode:
+    """Tests for get_strategy() auto mode — selection layer only."""
+
+    def _make_strategies(self):
+        class AlgoStrategy(NodeStrategy):
+            def __init__(self, config=None):
+                super().__init__(config)
+            async def execute(self, ctx):
+                return "algo"
+
+        class NeuralStrategy(NodeStrategy):
+            def __init__(self, config=None):
+                super().__init__(config)
+            async def execute(self, ctx):
+                return "neural"
+            def check_available(self):
+                return False  # unavailable by default
+
+        return {"algorithm": AlgoStrategy, "neural": NeuralStrategy}
+
+    def test_auto_selects_first_available(self):
+        strategies = self._make_strategies()
+        desc = _make_descriptor(
+            strategies=strategies,
+            fallback_chain=["algorithm", "neural"],
+        )
+        state = {"pipeline_config": {"test_node": {"strategy": "auto"}}}
+        ctx = NodeContext.from_state(state, desc)
+
+        strategy = ctx.get_strategy()
+        assert type(strategy).__name__ == "AlgoStrategy"
+
+    def test_auto_skips_unavailable(self):
+        class UnavailableAlgo(NodeStrategy):
+            def __init__(self, config=None):
+                super().__init__(config)
+            async def execute(self, ctx):
+                return "algo"
+            def check_available(self):
+                return False
+
+        class AvailableNeural(NodeStrategy):
+            def __init__(self, config=None):
+                super().__init__(config)
+            async def execute(self, ctx):
+                return "neural"
+
+        desc = _make_descriptor(
+            strategies={"algorithm": UnavailableAlgo, "neural": AvailableNeural},
+            fallback_chain=["algorithm", "neural"],
+        )
+        state = {"pipeline_config": {"test_node": {"strategy": "auto"}}}
+        ctx = NodeContext.from_state(state, desc)
+
+        strategy = ctx.get_strategy()
+        assert type(strategy).__name__ == "AvailableNeural"
+
+    def test_auto_all_unavailable_raises(self):
+        class BadStrat(NodeStrategy):
+            def __init__(self, config=None):
+                super().__init__(config)
+            async def execute(self, ctx):
+                pass
+            def check_available(self):
+                return False
+
+        desc = _make_descriptor(
+            strategies={"a": BadStrat, "b": BadStrat},
+            fallback_chain=["a", "b"],
+        )
+        state = {"pipeline_config": {"test_node": {"strategy": "auto"}}}
+        ctx = NodeContext.from_state(state, desc)
+
+        with pytest.raises(RuntimeError, match="unavailable"):
+            ctx.get_strategy()
+
+    def test_auto_no_fallback_chain_raises(self):
+        class Strat(NodeStrategy):
+            def __init__(self, config=None):
+                super().__init__(config)
+            async def execute(self, ctx):
+                pass
+
+        desc = _make_descriptor(
+            strategies={"a": Strat},
+            fallback_chain=[],
+        )
+        state = {"pipeline_config": {"test_node": {"strategy": "auto"}}}
+        ctx = NodeContext.from_state(state, desc)
+
+        with pytest.raises(ValueError, match="no fallback chain"):
+            ctx.get_strategy()
+
+    def test_explicit_strategy_unchanged(self):
+        """Non-auto mode should work exactly as before."""
+        strategies = self._make_strategies()
+        desc = _make_descriptor(
+            strategies=strategies,
+            fallback_chain=["algorithm", "neural"],
+        )
+        state = {"pipeline_config": {"test_node": {"strategy": "algorithm"}}}
+        ctx = NodeContext.from_state(state, desc)
+
+        strategy = ctx.get_strategy()
+        assert type(strategy).__name__ == "AlgoStrategy"

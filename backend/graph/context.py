@@ -183,11 +183,43 @@ class NodeContext:
     # -- Strategy --
 
     def get_strategy(self) -> NodeStrategy:
-        """Instantiate the strategy selected by current config."""
+        """Instantiate the strategy selected by current config.
+
+        For strategy="auto", iterates fallback_chain and returns the first
+        strategy where check_available() returns True (selection only,
+        does not call execute()).
+        """
         strategy_name = self.config.strategy
         strategies = self.descriptor.strategies
+
         if not strategies:
             raise ValueError(f"Node '{self.node_name}' has no strategies defined")
+
+        # Auto mode: iterate fallback_chain
+        if strategy_name == "auto":
+            chain = self.descriptor.fallback_chain
+            if not chain:
+                raise ValueError(
+                    f"Node '{self.node_name}' has strategy='auto' but "
+                    f"no fallback chain configured"
+                )
+            reasons = []
+            for name in chain:
+                if name not in strategies:
+                    reasons.append(f"{name}: not in strategies")
+                    continue
+                instance = strategies[name](config=self.config)
+                if instance.check_available():
+                    return instance
+                reasons.append(f"{name}: unavailable (check returned False)")
+
+            reason_str = "; ".join(reasons)
+            raise RuntimeError(
+                f"No available strategy for '{self.node_name}' in auto mode. "
+                f"Tried: {reason_str}"
+            )
+
+        # Explicit mode: direct lookup
         if strategy_name not in strategies:
             raise ValueError(
                 f"Strategy '{strategy_name}' not found for '{self.node_name}'. "
