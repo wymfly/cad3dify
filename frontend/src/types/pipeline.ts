@@ -1,3 +1,5 @@
+// --- Legacy config types (backward compat with old PipelineConfigBar) ---
+
 export interface PipelineConfig {
   preset: 'fast' | 'balanced' | 'precise' | 'custom';
 
@@ -41,4 +43,47 @@ export interface TooltipSpec {
 export interface PresetInfo {
   name: string;
   config: PipelineConfig;
+}
+
+// --- Node-level config types (new plugin pipeline architecture) ---
+
+/** Backend GET /pipeline/nodes response item */
+export interface PipelineNodeDescriptor {
+  name: string;
+  display_name: string;
+  requires: (string | string[])[];
+  produces: string[];
+  input_types: string[];
+  strategies: string[];
+  default_strategy: string | null;
+  is_entry: boolean;
+  is_terminal: boolean;
+  supports_hitl: boolean;
+  non_fatal: boolean;
+  description: string | null;
+  config_schema?: Record<string, unknown>;
+}
+
+/** Per-node config (enabled + strategy + custom params) */
+export interface NodeLevelConfig {
+  enabled?: boolean;
+  strategy?: string;
+  [key: string]: unknown;
+}
+
+/** Node-level preset from GET /pipeline/node-presets */
+export interface NodeLevelPreset {
+  name: string;
+  display_name: string;
+  description: string;
+  config: Record<string, NodeLevelConfig>;
+}
+
+/** Validate response from POST /pipeline/validate */
+export interface PipelineValidateResponse {
+  valid: boolean;
+  error?: string;
+  node_count?: number;
+  topology?: string[];
+  interrupt_before?: string[];
 }

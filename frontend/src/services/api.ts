@@ -1,5 +1,12 @@
 import axios from 'axios';
-import type { TooltipSpec, PipelineConfig } from '../types/pipeline.ts';
+import type {
+  TooltipSpec,
+  PipelineConfig,
+  PipelineNodeDescriptor,
+  NodeLevelPreset,
+  NodeLevelConfig,
+  PipelineValidateResponse,
+} from '../types/pipeline.ts';
 import type { BenchmarkSummary, BenchmarkReport } from '../types/benchmark.ts';
 import type { ParametricTemplate, ValidateResponse } from '../types/template.ts';
 import type {
@@ -45,6 +52,27 @@ export async function getTooltips(): Promise<Record<string, TooltipSpec>> {
 
 export async function getPresets(): Promise<Array<{ name: string } & PipelineConfig>> {
   const { data } = await api.get<Array<{ name: string } & PipelineConfig>>('/v1/pipeline/presets');
+  return data;
+}
+
+export async function getPipelineNodes(): Promise<PipelineNodeDescriptor[]> {
+  const { data } = await api.get<{ nodes: PipelineNodeDescriptor[] }>('/v1/pipeline/nodes');
+  return data.nodes;
+}
+
+export async function getNodePresets(): Promise<NodeLevelPreset[]> {
+  const { data } = await api.get<NodeLevelPreset[]>('/v1/pipeline/node-presets');
+  return data;
+}
+
+export async function validatePipelineConfig(
+  inputType: string | null,
+  config: Record<string, NodeLevelConfig>,
+): Promise<PipelineValidateResponse> {
+  const { data } = await api.post<PipelineValidateResponse>('/v1/pipeline/validate', {
+    input_type: inputType,
+    config,
+  });
   return data;
 }
 
@@ -276,6 +304,11 @@ export interface JobDetail {
 
 export async function getJobDetail(jobId: string): Promise<JobDetail> {
   const { data } = await api.get<JobDetail>(`/v1/jobs/${jobId}`);
+  return data;
+}
+
+export async function getJobCode(jobId: string): Promise<{ job_id: string; generated_code: string | null }> {
+  const { data } = await api.get<{ job_id: string; generated_code: string | null }>(`/v1/jobs/${jobId}/code`);
   return data;
 }
 

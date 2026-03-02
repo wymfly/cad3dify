@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { ReactFlow, Background, Controls } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -8,6 +8,8 @@ import NodeInspector from './NodeInspector.tsx';
 import type { NodeInspectorData } from './NodeInspector.tsx';
 import type { NodeStatus } from './NodeCard.tsx';
 import { getFilteredTopology } from './topology.ts';
+import { getPipelineNodes } from '../../services/api.ts';
+import type { PipelineNodeDescriptor } from '../../types/pipeline.ts';
 import type { JobEvent } from '../../hooks/useJobEvents.ts';
 
 export interface NodeState {
@@ -29,6 +31,16 @@ interface PipelineDAGProps {
 export default function PipelineDAG({ inputType, events }: PipelineDAGProps) {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [inspectorData, setInspectorData] = useState<NodeInspectorData | null>(null);
+  const [descriptors, setDescriptors] = useState<PipelineNodeDescriptor[] | undefined>(undefined);
+
+  // Fetch node descriptors from API (fallback to hardcoded on failure)
+  useEffect(() => {
+    getPipelineNodes()
+      .then(setDescriptors)
+      .catch(() => {
+        // Use hardcoded fallback topology
+      });
+  }, []);
 
   // Derive node states from events using explicit _eventType
   const nodeStates = useMemo(() => {
@@ -68,11 +80,11 @@ export default function PipelineDAG({ inputType, events }: PipelineDAGProps) {
   }, [events]);
 
   const { nodes: baseNodes, edges: baseEdges } = useMemo(
-    () => getFilteredTopology(inputType),
-    [inputType],
+    () => getFilteredTopology(inputType, descriptors),
+    [inputType, descriptors],
   );
 
-  // Enrich nodes with status data
+  // Enrich nodes with status data + active strategy from events
   const nodes = useMemo(
     () =>
       baseNodes.map((n) => {

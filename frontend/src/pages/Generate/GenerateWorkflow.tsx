@@ -9,7 +9,7 @@ import {
 } from '@ant-design/icons';
 import type { WorkflowPhase, DrawingSpec } from '../../types/generate.ts';
 import type { ParamDefinition } from '../../types/template.ts';
-import type { PipelineConfig } from '../../types/pipeline.ts';
+import type { NodeLevelPipelineConfig } from '../../components/PipelineConfigBar/index.tsx';
 import type { PrintabilityResult } from '../../types/printability.ts';
 
 const { Text } = Typography;
@@ -111,7 +111,7 @@ export function useGenerateWorkflow() {
   });
   const abortRef = useRef<AbortController | null>(null);
 
-  const startTextGenerate = useCallback(async (text: string, pipelineConfig?: PipelineConfig) => {
+  const startTextGenerate = useCallback(async (text: string, pipelineConfig?: NodeLevelPipelineConfig) => {
     abortRef.current?.abort();
     const abort = new AbortController();
     abortRef.current = abort;
@@ -131,11 +131,18 @@ export function useGenerateWorkflow() {
       drawingSpec: null,
     });
 
+    // Send node-level config (or preset name) to backend
+    const configPayload = pipelineConfig
+      ? pipelineConfig.preset !== 'custom'
+        ? { preset: pipelineConfig.preset }
+        : pipelineConfig.nodeConfig
+      : {};
+
     try {
       const resp = await fetch('/api/v1/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input_type: 'text', text, prompt: text, pipeline_config: pipelineConfig ?? {} }),
+        body: JSON.stringify({ input_type: 'text', text, prompt: text, pipeline_config: configPayload }),
         signal: abort.signal,
       });
 
@@ -192,7 +199,7 @@ export function useGenerateWorkflow() {
     [state.jobId],
   );
 
-  const startDrawingGenerate = useCallback(async (file: File, pipelineConfig?: PipelineConfig) => {
+  const startDrawingGenerate = useCallback(async (file: File, pipelineConfig?: NodeLevelPipelineConfig) => {
     abortRef.current?.abort();
     const abort = new AbortController();
     abortRef.current = abort;
@@ -212,9 +219,16 @@ export function useGenerateWorkflow() {
       drawingSpec: null,
     });
 
+    // Send node-level config (or preset name) to backend
+    const configPayload = pipelineConfig
+      ? pipelineConfig.preset !== 'custom'
+        ? { preset: pipelineConfig.preset }
+        : pipelineConfig.nodeConfig
+      : {};
+
     const formData = new FormData();
     formData.append('image', file);
-    formData.append('pipeline_config', JSON.stringify(pipelineConfig ?? {}));
+    formData.append('pipeline_config', JSON.stringify(configPayload));
 
     try {
       const resp = await fetch('/api/v1/jobs/upload', {

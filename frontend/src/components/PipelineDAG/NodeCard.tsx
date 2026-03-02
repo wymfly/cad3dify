@@ -15,6 +15,8 @@ interface NodeCardData {
   group: string;
   status?: NodeStatus;
   elapsedMs?: number;
+  strategy?: string | null;
+  nonFatal?: boolean;
 }
 
 const STATUS_CONFIG: Record<NodeStatus, { color: string; icon: ReactNode }> = {
@@ -51,6 +53,11 @@ function NodeCard({ data }: { data: NodeCardData }) {
           {data.label}
         </Tag>
       </div>
+      {data.strategy && (
+        <div style={{ fontSize: 10, color: '#8c8c8c', marginTop: 2 }}>
+          {data.strategy}
+        </div>
+      )}
       {data.elapsedMs != null && (
         <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
           {formatMs(data.elapsedMs)}

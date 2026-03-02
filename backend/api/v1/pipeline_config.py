@@ -52,6 +52,24 @@ async def list_pipeline_nodes() -> dict[str, Any]:
     return {"nodes": nodes}
 
 
+@router.get("/node-presets")
+async def get_node_presets() -> list[dict[str, Any]]:
+    """返回节点级预设配置列表。"""
+    from backend.graph.presets import PIPELINE_PRESETS
+
+    result = []
+    for name, preset in PIPELINE_PRESETS.items():
+        meta = preset.get("_meta", {})
+        config = {k: v for k, v in preset.items() if k != "_meta"}
+        result.append({
+            "name": name,
+            "display_name": meta.get("display_name", name),
+            "description": meta.get("description", ""),
+            "config": config,
+        })
+    return result
+
+
 @router.post("/validate")
 async def validate_pipeline_config(request: Request) -> dict[str, Any]:
     """验证 pipeline 配置的有效性。"""

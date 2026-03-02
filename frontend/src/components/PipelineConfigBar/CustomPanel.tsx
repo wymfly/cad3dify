@@ -1,121 +1,104 @@
-import { Checkbox, Tooltip, InputNumber, Space, Row, Col } from 'antd';
-import { QuestionCircleOutlined } from '@ant-design/icons';
-import type { PipelineConfig, TooltipSpec } from '../../types/pipeline.ts';
+import { Switch, Select, Space, Row, Col, Typography, Tag } from 'antd';
+import type { PipelineNodeDescriptor, NodeLevelConfig } from '../../types/pipeline.ts';
+
+const { Text } = Typography;
 
 interface CustomPanelProps {
-  config: PipelineConfig;
-  tooltips: Record<string, TooltipSpec>;
-  onChange: (patch: Partial<PipelineConfig>) => void;
+  descriptors: PipelineNodeDescriptor[];
+  config: Record<string, NodeLevelConfig>;
+  onChange: (nodeConfig: Record<string, NodeLevelConfig>) => void;
 }
 
-interface ToggleFieldDef {
-  key: keyof PipelineConfig;
-  label: string;
+/** Nodes that are always enabled and cannot be toggled */
+const NON_TOGGLEABLE = new Set(['create_job', 'confirm_with_user', 'finalize']);
+
+/** Group label mapping */
+const GROUP_LABELS: Record<string, string> = {
+  analysis: '分析',
+  generation: '生成',
+  postprocess: '后处理',
+};
+
+function inferGroup(desc: PipelineNodeDescriptor): string {
+  if (desc.is_entry || desc.is_terminal || desc.supports_hitl) return 'system';
+  if (desc.name.startsWith('analyze_')) return 'analysis';
+  if (desc.name.startsWith('generate_')) return 'generation';
+  return 'postprocess';
 }
 
-interface NumberFieldDef {
-  key: keyof PipelineConfig;
-  label: string;
-  min: number;
-  max: number;
-}
+export default function CustomPanel({ descriptors, config, onChange }: CustomPanelProps) {
+  // Group configurable nodes
+  const groups: Record<string, PipelineNodeDescriptor[]> = {};
+  for (const desc of descriptors) {
+    const group = inferGroup(desc);
+    if (group === 'system') continue; // skip non-configurable nodes
+    if (!groups[group]) groups[group] = [];
+    groups[group].push(desc);
+  }
 
-const toggleFields: ToggleFieldDef[] = [
-  { key: 'rag_enabled', label: 'RAG 增强' },
-  { key: 'ocr_assist', label: 'OCR 辅助' },
-  { key: 'two_pass_analysis', label: '两阶段分析' },
-  { key: 'multi_model_voting', label: '多模型投票' },
-  { key: 'api_whitelist', label: 'API 白名单' },
-  { key: 'ast_pre_check', label: 'AST 预检查' },
-  { key: 'volume_check', label: '体积验证' },
-  { key: 'topology_check', label: '拓扑验证' },
-  { key: 'cross_section_check', label: '截面分析' },
-  { key: 'multi_view_render', label: '多视角渲染' },
-  { key: 'structured_feedback', label: '结构化反馈' },
-  { key: 'rollback_on_degrade', label: '退化回滚' },
-  { key: 'contour_overlay', label: '轮廓叠加' },
-  { key: 'printability_check', label: '可打印性检查' },
-];
+  const handleToggle = (nodeName: string, enabled: boolean) => {
+    const updated = { ...config };
+    updated[nodeName] = { ...updated[nodeName], enabled };
+    onChange(updated);
+  };
 
-const numberFields: NumberFieldDef[] = [
-  { key: 'best_of_n', label: '多路生成 (N)', min: 1, max: 10 },
-  { key: 'self_consistency_runs', label: 'Self-Consistency 次数', min: 1, max: 5 },
-  { key: 'max_refinements', label: '最大修复轮数', min: 0, max: 10 },
-];
+  const handleStrategy = (nodeName: string, strategy: string) => {
+    const updated = { ...config };
+    updated[nodeName] = { ...updated[nodeName], strategy };
+    onChange(updated);
+  };
 
-function renderTooltip(tooltips: Record<string, TooltipSpec>, key: string) {
-  const tip = tooltips[key];
-  if (!tip) return null;
-
-  const content = (
-    <div style={{ maxWidth: 280 }}>
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>{tip.title}</div>
-      <div>{tip.description}</div>
-      {tip.when_to_use && (
-        <div style={{ marginTop: 4, color: '#91caff' }}>
-          适用场景: {tip.when_to_use}
-        </div>
-      )}
-      {tip.cost && (
-        <div style={{ marginTop: 2, color: '#ffccc7' }}>
-          开销: {tip.cost}
-        </div>
-      )}
-      {tip.default && (
-        <div style={{ marginTop: 2, color: '#d9f7be' }}>
-          默认: {tip.default}
-        </div>
-      )}
-    </div>
-  );
-
-  return (
-    <Tooltip title={content} placement="top">
-      <QuestionCircleOutlined
-        style={{ color: '#999', marginLeft: 4, cursor: 'help' }}
-      />
-    </Tooltip>
-  );
-}
-
-export default function CustomPanel({ config, tooltips, onChange }: CustomPanelProps) {
   return (
     <div style={{ padding: '12px 0' }}>
-      <Row gutter={[16, 8]}>
-        {toggleFields.map((field) => (
-          <Col key={field.key} xs={24} sm={12} md={8}>
-            <Space size={4}>
-              <Checkbox
-                checked={config[field.key] as boolean}
-                onChange={(e) => onChange({ [field.key]: e.target.checked })}
-              >
-                {field.label}
-              </Checkbox>
-              {renderTooltip(tooltips, field.key)}
-            </Space>
-          </Col>
-        ))}
-      </Row>
-      <Row gutter={[16, 8]} style={{ marginTop: 12 }}>
-        {numberFields.map((field) => (
-          <Col key={field.key} xs={24} sm={12} md={8}>
-            <Space size={4}>
-              <span>{field.label}:</span>
-              <InputNumber
-                size="small"
-                min={field.min}
-                max={field.max}
-                value={config[field.key] as number}
-                onChange={(val) => {
-                  if (val !== null) onChange({ [field.key]: val });
-                }}
-                style={{ width: 64 }}
-              />
-              {renderTooltip(tooltips, field.key)}
-            </Space>
-          </Col>
-        ))}
-      </Row>
+      {Object.entries(groups).map(([group, nodes]) => (
+        <div key={group} style={{ marginBottom: 16 }}>
+          <Text strong style={{ display: 'block', marginBottom: 8, color: '#595959' }}>
+            {GROUP_LABELS[group] ?? group}
+          </Text>
+          <Row gutter={[16, 12]}>
+            {nodes.map((desc) => {
+              const nodeConf = config[desc.name] ?? {};
+              const enabled = nodeConf.enabled !== false;
+              const canToggle = !NON_TOGGLEABLE.has(desc.name);
+
+              return (
+                <Col key={desc.name} xs={24} sm={12}>
+                  <Space size={8} align="start" style={{ width: '100%' }}>
+                    {canToggle && (
+                      <Switch
+                        size="small"
+                        checked={enabled}
+                        onChange={(val) => handleToggle(desc.name, val)}
+                      />
+                    )}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Text style={{ opacity: enabled ? 1 : 0.5 }}>
+                          {desc.display_name}
+                        </Text>
+                        {desc.non_fatal && (
+                          <Tag color="orange" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
+                            可选
+                          </Tag>
+                        )}
+                      </div>
+                      {desc.strategies.length > 1 && enabled && (
+                        <Select
+                          size="small"
+                          value={nodeConf.strategy ?? desc.default_strategy ?? desc.strategies[0]}
+                          onChange={(val) => handleStrategy(desc.name, val)}
+                          options={desc.strategies.map((s) => ({ label: s, value: s }))}
+                          style={{ width: '100%', marginTop: 4 }}
+                        />
+                      )}
+                    </div>
+                  </Space>
+                </Col>
+              );
+            })}
+          </Row>
+        </div>
+      ))}
     </div>
   );
 }
