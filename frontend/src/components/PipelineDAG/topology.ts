@@ -23,6 +23,7 @@ const ALL_NODES: PipelineNode[] = [
   { id: 'postprocess_organic', label: '有机后处理', group: 'generation' },
   { id: 'convert_preview', label: 'GLB 预览', group: 'postprocess' },
   { id: 'check_printability', label: '可打印性检查', group: 'postprocess' },
+  { id: 'analyze_dfam', label: 'DfAM 分析', group: 'postprocess' },
   { id: 'finalize', label: '完成', group: 'final' },
 ];
 
@@ -41,18 +42,19 @@ const ALL_EDGES = [
   { source: 'generate_organic_mesh', target: 'postprocess_organic' },
   { source: 'postprocess_organic', target: 'finalize' },
   { source: 'convert_preview', target: 'check_printability' },
-  { source: 'check_printability', target: 'finalize' },
+  { source: 'check_printability', target: 'analyze_dfam' },
+  { source: 'analyze_dfam', target: 'finalize' },
 ];
 
 /** Path-specific node IDs */
 const PATH_NODES: Record<string, string[]> = {
   text: [
     'create_job', 'analyze_intent', 'confirm_with_user',
-    'generate_step_text', 'convert_preview', 'check_printability', 'finalize',
+    'generate_step_text', 'convert_preview', 'check_printability', 'analyze_dfam', 'finalize',
   ],
   drawing: [
     'create_job', 'analyze_vision', 'confirm_with_user',
-    'generate_step_drawing', 'convert_preview', 'check_printability', 'finalize',
+    'generate_step_drawing', 'convert_preview', 'check_printability', 'analyze_dfam', 'finalize',
   ],
   organic: [
     'create_job', 'analyze_organic', 'confirm_with_user',
@@ -79,7 +81,8 @@ const FULL_LAYOUT: Record<string, { x: number; y: number }> = {
   postprocess_organic:   { x: 420, y: 400 },
   convert_preview:       { x: 165, y: 400 },
   check_printability:    { x: 165, y: 500 },
-  finalize:              { x: 250, y: 600 },
+  analyze_dfam:          { x: 165, y: 575 },
+  finalize:              { x: 250, y: 675 },
 };
 
 /** Filter topology by input_type, return ReactFlow-compatible nodes and edges. */

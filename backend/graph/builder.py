@@ -34,6 +34,7 @@ from backend.graph.nodes.lifecycle import (
 create_job_node = timed_node("create_job")(_create_job_node)
 confirm_with_user_node = timed_node("confirm_with_user")(_confirm_with_user_node)
 finalize_node = timed_node("finalize")(_finalize_node)
+from backend.graph.nodes.dfam import analyze_dfam_node
 from backend.graph.nodes.postprocess import (
     check_printability_node,
     convert_preview_node,
@@ -59,6 +60,7 @@ def _build_workflow() -> StateGraph:
     workflow.add_node("postprocess_organic", postprocess_organic_node)
     workflow.add_node("convert_preview", convert_preview_node)
     workflow.add_node("check_printability", check_printability_node)
+    workflow.add_node("analyze_dfam", analyze_dfam_node)
     workflow.add_node("finalize", finalize_node)
 
     # Apply registered interceptors
@@ -105,7 +107,8 @@ def _build_workflow() -> StateGraph:
     else:
         workflow.add_edge("convert_preview", "check_printability")
 
-    workflow.add_edge("check_printability", "finalize")
+    workflow.add_edge("check_printability", "analyze_dfam")
+    workflow.add_edge("analyze_dfam", "finalize")
     workflow.add_edge("finalize", END)
 
     return workflow
