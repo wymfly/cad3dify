@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from backend.api.v1 import (
     benchmark,
+    corrections,
     events,
     export,
     health,
@@ -28,6 +29,7 @@ router.include_router(pipeline_config.router)
 router.include_router(rag.router)
 router.include_router(export.router)
 router.include_router(benchmark.router)
+router.include_router(corrections.router)
 router.include_router(standards.router)
 router.include_router(print_config.router)
 router.include_router(templates.router)

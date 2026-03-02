@@ -52,6 +52,7 @@ class CreateJobRequest(BaseModel):
     quality_mode: str = "standard"  # organic 模式
     reference_image: str | None = None  # organic: uploaded file_id
     constraints: dict[str, Any] | None = None  # organic: {bounding_box, engineering_cuts}
+    parent_job_id: str | None = None  # fork: link to parent (text only)
     pipeline_config: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -93,6 +94,9 @@ class JobDetailResponse(BaseModel):
     drawing_spec_confirmed: dict[str, Any] | None = None
     image_path: str | None = None
     organic_spec: dict[str, Any] | None = None
+    generated_code: str | None = None
+    parent_job_id: str | None = None
+    child_job_ids: list[str] = Field(default_factory=list)
     recommendations: list[dict[str, Any]] = Field(default_factory=list)
     corrections: list[CorrectionItem] = Field(default_factory=list)
 
@@ -128,7 +132,11 @@ class RegenerateResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _job_to_detail(job: Job, corrections: list[CorrectionItem] | None = None) -> JobDetailResponse:
+def _job_to_detail(
+    job: Job,
+    corrections: list[CorrectionItem] | None = None,
+    child_job_ids: list[str] | None = None,
+) -> JobDetailResponse:
     """将 Job Pydantic 模型转换为 API 响应。"""
     intent_data: dict[str, Any] | None = None
     if job.intent is not None:
@@ -161,6 +169,9 @@ def _job_to_detail(job: Job, corrections: list[CorrectionItem] | None = None) ->
         drawing_spec_confirmed=job.drawing_spec_confirmed,
         image_path=job.image_path,
         organic_spec=job.organic_spec,
+        generated_code=job.generated_code,
+        parent_job_id=job.parent_job_id,
+        child_job_ids=child_job_ids or [],
         recommendations=job.recommendations,
         corrections=corrections or [],
     )
@@ -185,6 +196,14 @@ async def create_job_endpoint(body: CreateJobRequest, request: Request) -> Event
             status_code=422,
             code=ErrorCode.VALIDATION_FAILED,
             message=f"不支持的 input_type: {body.input_type!r}，可选值: text | organic | drawing",
+        )
+
+    # Fork validation: parent_job_id only supported for text
+    if body.parent_job_id and body.input_type != "text":
+        raise APIError(
+            status_code=400,
+            code=ErrorCode.VALIDATION_FAILED,
+            message="Fork is only supported for text jobs",
         )
 
     # Organic mode: feature gate + input validation
@@ -231,6 +250,9 @@ async def create_job_endpoint(body: CreateJobRequest, request: Request) -> Event
         "pipeline_config": pc.model_dump(),  # consumed by generation nodes in M2
         "status": "pending",
     }
+
+    if body.parent_job_id:
+        initial_state["parent_job_id"] = body.parent_job_id
 
     # Map organic-specific fields to initial state
     if body.input_type == "organic":
@@ -443,13 +465,15 @@ async def get_job_endpoint(job_id: str) -> JobDetailResponse:
     if job is None:
         raise JobNotFoundError(job_id)
 
-    # 查询 corrections：DB 优先，JSON 文件兜底
+    # 查询 corrections + child_job_ids
     from backend.db.database import async_session
-    from backend.db.repository import list_corrections_by_job
+    from backend.db.repository import list_child_job_ids, list_corrections_by_job
 
     corrections_list: list[CorrectionItem] = []
+    child_ids: list[str] = []
     async with async_session() as session:
         db_corrections = await list_corrections_by_job(session, job_id)
+        child_ids = await list_child_job_ids(session, job_id)
 
     if db_corrections:
         corrections_list = [
@@ -480,7 +504,7 @@ async def get_job_endpoint(job_id: str) -> JobDetailResponse:
         except Exception:
             pass  # Corrupt file — return empty corrections
 
-    return _job_to_detail(job, corrections=corrections_list)
+    return _job_to_detail(job, corrections=corrections_list, child_job_ids=child_ids)
 
 
 # ---------------------------------------------------------------------------

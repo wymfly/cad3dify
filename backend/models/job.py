@@ -47,6 +47,8 @@ class Job(BaseModel):
     organic_spec: Optional[dict[str, Any]] = None
     result: Optional[dict[str, Any]] = None
     printability: Optional[dict[str, Any]] = None
+    generated_code: Optional[str] = None
+    parent_job_id: Optional[str] = None
     error: Optional[str] = None
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
@@ -81,6 +83,8 @@ def _orm_to_job(orm: Any) -> Job:
         organic_spec=getattr(orm, "organic_spec", None),
         result=orm.result,
         printability=orm.printability_result,
+        generated_code=getattr(orm, "generated_code", None),
+        parent_job_id=getattr(orm, "parent_job_id", None),
         error=orm.error,
         created_at=created_at,
     )

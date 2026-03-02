@@ -6,16 +6,17 @@ from dataclasses import dataclass
 
 @dataclass
 class SFTConfig:
-    """Configuration for SFT (Supervised Fine-Tuning)."""
+    """Configuration for SFT (Supervised Fine-Tuning) with LoRA."""
     base_model: str = "Qwen/Qwen2.5-Coder-7B"
     dataset_path: str = ""
     output_dir: str = "outputs/sft"
     num_epochs: int = 3
     batch_size: int = 4
-    learning_rate: float = 2e-5
+    learning_rate: float = 2e-4
     max_seq_length: int = 4096
     lora_rank: int = 16
     lora_alpha: int = 32
+    warmup_ratio: float = 0.1
 
 
 @dataclass

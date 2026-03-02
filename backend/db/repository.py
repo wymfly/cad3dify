@@ -95,6 +95,20 @@ async def list_jobs(
     return jobs, total
 
 
+async def list_child_job_ids(
+    session: AsyncSession, parent_job_id: str,
+) -> list[str]:
+    """Return job_ids of children whose parent_job_id matches."""
+    stmt = (
+        select(JobModel.job_id)
+        .where(JobModel.parent_job_id == parent_job_id)
+        .where(JobModel.deleted_at.is_(None))
+        .order_by(JobModel.created_at)
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
 # ---------------------------------------------------------------------------
 # OrganicJobModel CRUD
 # ---------------------------------------------------------------------------

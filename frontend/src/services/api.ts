@@ -267,6 +267,9 @@ export interface JobDetail {
     step_path?: string;
   } | null;
   printability: PrintabilityResult | null;
+  generated_code: string | null;
+  parent_job_id: string | null;
+  child_job_ids: string[];
   error: string | null;
   created_at: string;
 }

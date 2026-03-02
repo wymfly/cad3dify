@@ -1,0 +1,15 @@
+{
+  "case_id": "case_007_text_plate",
+  "input_type": "text",
+  "input_text": "一块200x100x10mm的矩形板",
+  "template_name": "plate_rectangular",
+  "params": {"length": 200, "width": 100, "height": 10},
+  "expected_spec": {
+    "part_type": "plate",
+    "description": "矩形板件"
+  },
+  "expected_bbox": {
+    "xlen": 200, "ylen": 10, "zlen": 100,
+    "tolerance_pct": 10
+  }
+}

@@ -41,8 +41,14 @@ async def create_job_node(state: CadJobState) -> dict[str, Any]:
         input_type=state["input_type"],
         input_text=state.get("input_text") or "",
     )
+    # Persist optional fields to DB
+    extra_updates: dict[str, Any] = {}
     if state.get("image_path"):
-        await update_job(state["job_id"], image_path=state["image_path"])
+        extra_updates["image_path"] = state["image_path"]
+    if state.get("parent_job_id"):
+        extra_updates["parent_job_id"] = state["parent_job_id"]
+    if extra_updates:
+        await update_job(state["job_id"], **extra_updates)
 
     # Initialize token tracker (serialized as dict in state)
     from backend.infra.token_tracker import TokenTracker
@@ -81,7 +87,7 @@ async def finalize_node(state: CadJobState) -> dict[str, Any]:
 
     # Build ORM update kwargs using STATE_TO_ORM_MAPPING
     orm_kwargs: dict[str, Any] = {"status": final_status}
-    direct_fields = ["intent", "drawing_spec", "error"]
+    direct_fields = ["intent", "drawing_spec", "error", "generated_code", "parent_job_id"]
     for field in direct_fields:
         val = state.get(field)
         if val is not None:

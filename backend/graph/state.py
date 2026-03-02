@@ -25,6 +25,7 @@ class CadJobState(TypedDict, total=False):
 
     # ── Generation outputs ──
     step_path: str | None
+    generated_code: str | None   # CadQuery Python source code
     model_url: str | None        # GLB preview URL
     printability: dict | None
     recommendations: list[dict] | None  # ParamRecommendation / PostProcessRecommendation
@@ -43,6 +44,9 @@ class CadJobState(TypedDict, total=False):
     mesh_stats: dict | None
     organic_warnings: Annotated[list[str], operator.add]
     organic_result: dict | None          # {model_url, stl_url, threemf_url, ...}
+
+    # ── Version chain ──
+    parent_job_id: str | None    # parent Job for forked text generations
 
     # ── Pipeline configuration ──
     pipeline_config: dict | None  # PipelineConfig.model_dump()

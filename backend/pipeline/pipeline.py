@@ -171,12 +171,14 @@ def generate_step_from_spec(
     num_refinements: int | None = None,
     on_progress: Callable | None = None,
     config: PipelineConfig | None = None,
-) -> None:
+) -> str | None:
     """Stages 1.5-5: strategy → code gen → execute → refine → post-checks.
 
     Second half of the HITL pipeline split (D8).
     Requires original image_filepath for Stage 4 SmartRefiner VL comparison.
     Uses the (possibly user-modified) drawing_spec.
+
+    Returns the final CadQuery Python code string, or None if generation failed.
     """
     if config is None:
         config = PRESETS["balanced"]
@@ -305,7 +307,7 @@ def generate_step_from_spec(
         best = select_best(candidates)
         if best is None or best["score"] == 0:
             logger.error("[V2] All candidates failed, aborting")
-            return
+            return None
 
         code = best["code"]
         logger.info(
@@ -318,7 +320,7 @@ def generate_step_from_spec(
                 execute_python_code(code, model_type="qwen-coder", only_execute=False)
             except Exception as e:
                 logger.error(f"[V2] Re-execution of best candidate failed: {e}")
-                return
+                return None
 
     else:
         # ---- 单路生成 ----
@@ -327,7 +329,7 @@ def generate_step_from_spec(
 
         if result is None:
             logger.error("[V2] Code generation failed")
-            return
+            return None
 
         code = Template(result).safe_substitute(output_filename=output_filepath)
         logger.info("[V2] Code generation complete.")
@@ -543,6 +545,7 @@ def generate_step_from_spec(
             logger.warning(f"[V2] Cross-section analysis failed: {e}")
 
     logger.info(f"[V2] Pipeline complete. Output: {output_filepath}")
+    return code
 
 
 # ======================================================================

@@ -169,9 +169,11 @@ class TestRunner:
 
         runner = BenchmarkRunner()
         cases = runner.load_cases("benchmarks/v1")
-        assert len(cases) == 5
+        assert len(cases) == 7
         assert cases[0].case_id == "case_001_cylinder"
         assert cases[4].case_id == "case_005_bracket"
+        assert cases[5].case_id == "case_006_text_cylinder"
+        assert cases[6].case_id == "case_007_text_plate"
 
     def test_load_cases_missing_dir_raises(self):
         from backend.benchmark.runner import BenchmarkRunner

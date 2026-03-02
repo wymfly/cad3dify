@@ -1,0 +1,15 @@
+{
+  "case_id": "case_006_text_cylinder",
+  "input_type": "text",
+  "input_text": "生成一个直径50mm、高80mm的圆柱体",
+  "template_name": "cylinder_simple",
+  "params": {"diameter": 50, "height": 80},
+  "expected_spec": {
+    "part_type": "rotational",
+    "description": "简单圆柱体"
+  },
+  "expected_bbox": {
+    "xlen": 50, "ylen": 80, "zlen": 50,
+    "tolerance_pct": 10
+  }
+}

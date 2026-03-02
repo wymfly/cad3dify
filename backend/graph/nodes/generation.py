@@ -22,11 +22,13 @@ def _run_generate_from_spec(
     image_path: str,
     drawing_spec: dict | None,
     step_path: str,
-) -> None:
+) -> str | None:
     """Synchronous drawing generation — delegates to pipeline.
 
     Deserializes drawing_spec dict → DrawingSpec Pydantic model before
     calling the pipeline, which expects attribute access (spec.part_type).
+
+    Returns the generated CadQuery code string, or None on failure.
     """
     from backend.pipeline.pipeline import generate_step_from_spec
 
@@ -36,7 +38,7 @@ def _run_generate_from_spec(
         from cadpilot.knowledge.part_types import DrawingSpec
         spec_obj = DrawingSpec(**drawing_spec)
 
-    generate_step_from_spec(
+    return generate_step_from_spec(
         image_filepath=image_path,
         drawing_spec=spec_obj,
         output_filepath=step_path,
@@ -85,8 +87,15 @@ async def generate_step_text_node(state: CadJobState) -> dict[str, Any]:
             "_reasoning": {"error": str(exc)},
         }
 
+    # Persist generated code to file
+    code_text = result.cadquery_code or ""
+    if code_text:
+        code_path = job_dir / "code.py"
+        code_path.write_text(code_text, encoding="utf-8")
+
     return {
         "step_path": result.step_path,
+        "generated_code": code_text or None,
         "status": "generating",
         "_reasoning": {
             "method": result.method,
@@ -116,18 +125,21 @@ async def generate_step_drawing_node(state: CadJobState) -> dict[str, Any]:
         "message": "正在通过 V2 管道生成 STEP 模型",
     })
 
+    code_text: str | None = None
     try:
         if not image_path:
             return {
                 "error": "No image_path provided", "failure_reason": "generation_error", "status": "failed",
                 "_reasoning": {"error": "No image_path provided"},
             }
-        await asyncio.to_thread(
+        raw_code = await asyncio.to_thread(
             _run_generate_from_spec,
             image_path=image_path,
             drawing_spec=state.get("confirmed_spec") or state.get("drawing_spec"),
             step_path=step_path,
         )
+        if isinstance(raw_code, str):
+            code_text = raw_code
     except Exception as exc:
         reason = map_exception_to_failure_reason(exc)
         logger.error("Drawing generation failed: %s (%s)", exc, reason)
@@ -140,8 +152,14 @@ async def generate_step_drawing_node(state: CadJobState) -> dict[str, Any]:
             "_reasoning": {"error": str(exc)},
         }
 
+    # Persist generated code to file
+    if code_text:
+        code_path = job_dir / "code.py"
+        code_path.write_text(code_text, encoding="utf-8")
+
     return {
         "step_path": step_path,
+        "generated_code": code_text,
         "status": "generating",
         "_reasoning": {
             "pipeline": "V2 drawing pipeline",
