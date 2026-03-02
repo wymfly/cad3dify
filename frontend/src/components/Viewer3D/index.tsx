@@ -4,10 +4,14 @@ import { OrbitControls, Center, Environment } from '@react-three/drei';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as THREE from 'three';
 import { Spin } from 'antd';
+import { createDfamMaterial, type DfamMeshMeta } from './DfamShader.ts';
+import HeatmapLegend from './HeatmapLegend.tsx';
 import ViewControls from './ViewControls.tsx';
+import type { DfamMode } from './ViewControls.tsx';
 
 interface Viewer3DProps {
   modelUrl: string | null;
+  dfamGlbUrl?: string | null;
   wireframe?: boolean;
   darkMode?: boolean;
   previewLoading?: boolean;
@@ -20,10 +24,11 @@ interface Viewer3DProps {
 interface ModelProps {
   url: string;
   wireframe: boolean;
+  visible?: boolean;
   onLoaded?: () => void;
 }
 
-function Model({ url, wireframe, onLoaded }: ModelProps) {
+function Model({ url, wireframe, visible = true, onLoaded }: ModelProps) {
   const gltf = useLoader(GLTFLoader, url);
 
   // Apply wireframe to all meshes
@@ -39,6 +44,8 @@ function Model({ url, wireframe, onLoaded }: ModelProps) {
     }
   });
 
+  gltf.scene.visible = visible;
+
   useEffect(() => {
     if (onLoaded) onLoaded();
   }, [url, onLoaded]);
@@ -46,6 +53,15 @@ function Model({ url, wireframe, onLoaded }: ModelProps) {
   return (
     <Center>
       <primitive object={gltf.scene} />
+    </Center>
+  );
+}
+
+/** Renders the DfAM heatmap scene loaded externally. */
+function DfamOverlay({ group }: { group: THREE.Group }) {
+  return (
+    <Center>
+      <primitive object={group} />
     </Center>
   );
 }
@@ -72,6 +88,7 @@ function CameraController({ targetPosition, onAnimationDone }: CameraControllerP
 
 export default function Viewer3D({
   modelUrl,
+  dfamGlbUrl,
   wireframe: externalWireframe,
   darkMode = false,
   previewLoading = false,
@@ -84,6 +101,12 @@ export default function Viewer3D({
   const [cameraTarget, setCameraTarget] = useState<[number, number, number] | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // DfAM state
+  const [dfamMode, setDfamMode] = useState<DfamMode>('normal');
+  const [dfamScene, setDfamScene] = useState<THREE.Group | null>(null);
+  const [dfamMeta, setDfamMeta] = useState<DfamMeshMeta | null>(null);
+  const [dfamLoading, setDfamLoading] = useState(false);
+
   const wireframe = externalWireframe ?? internalWireframe;
 
   const handleViewChange = useCallback((position: [number, number, number]) => {
@@ -93,6 +116,73 @@ export default function Viewer3D({
   const handleAnimationDone = useCallback(() => {
     setCameraTarget(null);
   }, []);
+
+  // Load DfAM GLB when switching away from 'normal'
+  useEffect(() => {
+    if (dfamMode === 'normal' || dfamScene || !dfamGlbUrl || dfamLoading) return;
+
+    setDfamLoading(true);
+    const loader = new GLTFLoader();
+    loader.load(
+      dfamGlbUrl,
+      (gltf) => {
+        const group = gltf.scene;
+
+        // Apply DfAM shader to all meshes and extract metadata
+        group.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.material = createDfamMaterial();
+            // Extract metadata from mesh userData if present
+            if (child.userData?.analysis_type) {
+              // Metadata is stored per-mesh; we'll pick the active one later
+            }
+          }
+        });
+
+        setDfamScene(group);
+        setDfamLoading(false);
+      },
+      undefined,
+      () => {
+        setDfamLoading(false);
+      },
+    );
+  }, [dfamMode, dfamScene, dfamGlbUrl, dfamLoading]);
+
+  // Toggle mesh visibility based on dfamMode
+  useEffect(() => {
+    if (!dfamScene) return;
+
+    dfamScene.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        const meshType = child.name; // "wall_thickness" or "overhang"
+        if (dfamMode === 'normal') {
+          child.visible = false;
+        } else {
+          child.visible = meshType === dfamMode;
+        }
+
+        // Update meta for active mesh
+        if (child.visible && child.userData?.analysis_type) {
+          setDfamMeta({
+            analysis_type: child.userData.analysis_type,
+            threshold: child.userData.threshold ?? 0,
+            min_value: child.userData.min_value ?? null,
+            max_value: child.userData.max_value ?? null,
+            vertices_at_risk_count: child.userData.vertices_at_risk_count ?? 0,
+            vertices_at_risk_percent: child.userData.vertices_at_risk_percent ?? 0,
+          });
+        }
+      }
+    });
+
+    if (dfamMode === 'normal') {
+      setDfamMeta(null);
+    }
+  }, [dfamMode, dfamScene]);
+
+  const showOriginalModel = dfamMode === 'normal';
+  const dfamAvailable = !!dfamGlbUrl;
 
   // 暗色模式配置
   const bgColor = darkMode ? '#0a0a0a' : '#f0f0f0';
@@ -134,8 +224,11 @@ export default function Viewer3D({
         />
         {modelUrl && (
           <Suspense fallback={null}>
-            <Model url={modelUrl} wireframe={wireframe} onLoaded={onLoaded} />
+            <Model url={modelUrl} wireframe={wireframe} visible={showOriginalModel} onLoaded={onLoaded} />
           </Suspense>
+        )}
+        {dfamScene && dfamMode !== 'normal' && (
+          <DfamOverlay group={dfamScene} />
         )}
         {!modelUrl && (
           <mesh>
@@ -167,9 +260,47 @@ export default function Viewer3D({
       <ViewControls
         wireframe={wireframe}
         darkMode={darkMode}
+        dfamMode={dfamMode}
+        dfamAvailable={dfamAvailable}
         onWireframeToggle={() => setInternalWireframe((v) => !v)}
         onViewChange={handleViewChange}
+        onDfamModeChange={setDfamMode}
       />
+
+      {/* DfAM heatmap legend */}
+      {dfamMode !== 'normal' && dfamMeta && (
+        <HeatmapLegend
+          type={dfamMeta.analysis_type}
+          min={dfamMeta.min_value}
+          max={dfamMeta.max_value}
+          threshold={dfamMeta.threshold}
+          verticesAtRisk={dfamMeta.vertices_at_risk_count}
+          verticesAtRiskPercent={dfamMeta.vertices_at_risk_percent}
+        />
+      )}
+
+      {/* DfAM loading indicator */}
+      {dfamLoading && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 12,
+            right: 12,
+            background: darkMode ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)',
+            borderRadius: 6,
+            padding: '6px 12px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 12,
+            color: darkMode ? '#aaa' : '#666',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          }}
+        >
+          <Spin size="small" />
+          加载热力图...
+        </div>
+      )}
 
       {/* Preview loading overlay */}
       {previewLoading && modelUrl && (
