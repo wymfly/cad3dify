@@ -35,14 +35,14 @@ def parse_pipeline_config(
     If raw_config contains {"preset": "fast"}, expand it from PIPELINE_PRESETS.
     Custom node overrides in raw_config take precedence over preset values.
     """
-    preset_name = raw_config.pop("preset", None) if isinstance(raw_config, dict) else None
+    preset_name = raw_config.get("preset") if isinstance(raw_config, dict) else None
 
     if preset_name and preset_name in PIPELINE_PRESETS:
         base = {}
         for k, v in PIPELINE_PRESETS[preset_name].items():
             if k != "_meta":
                 base[k] = dict(v)  # copy
-        # Merge custom overrides
+        # Merge custom overrides (skip non-dict values like "preset")
         for k, v in raw_config.items():
             if isinstance(v, dict):
                 base.setdefault(k, {}).update(v)

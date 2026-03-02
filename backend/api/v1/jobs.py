@@ -344,12 +344,28 @@ async def create_drawing_job(
     cad_graph = request.app.state.cad_graph
     config = {"configurable": {"thread_id": job_id}}
 
+    # Convert pipeline_config for new builder if active
+    import os
+
+    use_new = os.environ.get("USE_NEW_BUILDER", "0") == "1"
+    if use_new:
+        from backend.graph.compat import convert_legacy_pipeline_config, is_legacy_format
+        from backend.graph.presets import parse_pipeline_config
+
+        pc_dict = pc.model_dump()
+        if is_legacy_format(pc_dict):
+            pipeline_cfg = convert_legacy_pipeline_config(pc_dict)
+        else:
+            pipeline_cfg = parse_pipeline_config(dict(pc_dict))
+    else:
+        pipeline_cfg = pc.model_dump()
+
     initial_state = {
         "job_id": job_id,
         "input_type": "drawing",
         "input_text": None,
         "image_path": image_path,
-        "pipeline_config": pc.model_dump(),
+        "pipeline_config": pipeline_cfg,
         "status": "pending",
     }
 

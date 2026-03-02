@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import threading
 from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 from backend.graph.descriptor import NodeDescriptor, NodeStrategy
@@ -23,19 +24,20 @@ class NodeRegistry:
 
     def __init__(self) -> None:
         self._nodes: dict[str, NodeDescriptor] = {}
+        self._lock = threading.Lock()
 
     def register(self, descriptor: NodeDescriptor) -> None:
-        existing = self._nodes.get(descriptor.name)
-        if existing is not None:
-            # Idempotent: same function re-registering (module re-import) → skip
-            if existing.fn is descriptor.fn:
-                return
-            raise ValueError(
-                f"Node '{descriptor.name}' already registered "
-                f"(existing fn: {existing.fn}, new fn: {descriptor.fn})"
-            )
-        self._nodes[descriptor.name] = descriptor
-        logger.debug("Registered node: %s", descriptor.name)
+        with self._lock:
+            existing = self._nodes.get(descriptor.name)
+            if existing is not None:
+                if existing.fn is descriptor.fn:
+                    return
+                raise ValueError(
+                    f"Node '{descriptor.name}' already registered "
+                    f"(existing fn: {existing.fn}, new fn: {descriptor.fn})"
+                )
+            self._nodes[descriptor.name] = descriptor
+            logger.debug("Registered node: %s", descriptor.name)
 
     def get(self, name: str) -> NodeDescriptor:
         if name not in self._nodes:

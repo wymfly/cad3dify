@@ -170,6 +170,10 @@ class PipelineBuilder:
         add_conditional_edges with input_type routing.
 
         For simple linear edges (single successor), we use add_edge.
+
+        For multiple successors with overlapping input_types (transitive edges
+        from OR deps), connect to the earliest in topological order — others
+        are reachable through the dependency chain.
         """
         # Build adjacency from resolved edges
         adjacency: dict[str, list[str]] = {}
@@ -177,6 +181,7 @@ class PipelineBuilder:
             adjacency.setdefault(src, []).append(dst)
 
         node_map = {d.name: d for d in resolved.ordered_nodes}
+        topo_order = {d.name: i for i, d in enumerate(resolved.ordered_nodes)}
 
         for src_name, dst_names in adjacency.items():
             src_desc = node_map[src_name]
@@ -192,17 +197,23 @@ class PipelineBuilder:
                 )
                 if input_type_map:
                     # Need a routing function + possible fallback handling
-                    routing_map = dict(input_type_map)
-                    # Add conditional edge with routing function
                     workflow.add_conditional_edges(
                         src_name,
                         self._make_router(src_desc, input_type_map, node_map),
                         {name: name for name in dst_names},
                     )
                 else:
-                    # Same input_types — just fan out to first
-                    # (shouldn't happen in practice with proper asset resolution)
-                    workflow.add_edge(src_name, dst_names[0])
+                    # Overlapping input_types — connect to earliest in topo order.
+                    # Others are reachable through the dependency chain.
+                    first = min(dst_names, key=lambda n: topo_order.get(n, float("inf")))
+                    workflow.add_edge(src_name, first)
+                    if len(dst_names) > 1:
+                        skipped = [n for n in dst_names if n != first]
+                        logger.debug(
+                            "Node '%s': connecting to '%s' (earliest successor); "
+                            "%s reachable through dependency chain",
+                            src_name, first, skipped,
+                        )
 
     def _build_input_type_routing(
         self,
@@ -235,7 +246,7 @@ class PipelineBuilder:
     ):
         """Create a routing function for conditional edges."""
         type_to_node = dict(input_type_map)
-        all_dst = list(set(n for _, n in input_type_map))
+        all_dst = sorted(set(n for _, n in input_type_map))
 
         def router(state: dict[str, Any]) -> str:
             # Check for failure → route to terminal if available

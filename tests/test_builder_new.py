@@ -210,6 +210,88 @@ class TestInputTypeRouting:
         assert result == "fin"
 
 
+class TestWrapNodeLegacyReturn:
+    """Tests for _wrap_node handling of legacy dict-return nodes."""
+
+    @pytest.mark.asyncio
+    async def test_legacy_dict_return(self):
+        """Legacy nodes that return dicts should have their diff used directly."""
+
+        async def legacy_fn(ctx):
+            return {"step_path": "/tmp/out.step", "status": "done"}
+
+        desc = _desc("legacy", fn=legacy_fn)
+        builder = PipelineBuilder()
+        wrapped = builder._wrap_node(desc)
+
+        state = {"job_id": "lg1", "input_type": "text", "assets": {}, "data": {}, "pipeline_config": {}, "node_trace": []}
+        with patch("backend.graph.builder_new._safe_dispatch", new_callable=AsyncMock):
+            result = await wrapped(state)
+
+        assert result["step_path"] == "/tmp/out.step"
+        assert result["status"] == "done"
+        # Should have node_trace injected
+        assert len(result["node_trace"]) == 1
+        assert result["node_trace"][0]["node"] == "legacy"
+
+    @pytest.mark.asyncio
+    async def test_legacy_dict_with_reasoning(self):
+        """Legacy nodes returning _reasoning should have it extracted into trace."""
+
+        async def reasoning_fn(ctx):
+            return {"result": "ok", "_reasoning": {"model": "gpt"}}
+
+        desc = _desc("reasoning_node", fn=reasoning_fn)
+        builder = PipelineBuilder()
+        wrapped = builder._wrap_node(desc)
+
+        state = {"job_id": "r1", "input_type": "text", "assets": {}, "data": {}, "pipeline_config": {}, "node_trace": []}
+        with patch("backend.graph.builder_new._safe_dispatch", new_callable=AsyncMock):
+            result = await wrapped(state)
+
+        # _reasoning should be popped from diff
+        assert "_reasoning" not in result
+        # But should be in trace
+        assert result["node_trace"][0]["reasoning"] == {"model": "gpt"}
+
+
+class TestRouterFallback:
+    """Tests for _make_router fallback and edge cases."""
+
+    def test_unknown_input_type_routes_deterministically(self):
+        builder = PipelineBuilder()
+        desc = _desc("src")
+        node_map = {
+            "src": desc,
+            "text_a": _desc("text_a", input_types=["text"]),
+            "draw_a": _desc("draw_a", input_types=["drawing"]),
+        }
+        input_type_map = [("text", "text_a"), ("drawing", "draw_a")]
+        router = builder._make_router(desc, input_type_map, node_map)
+
+        # Unknown input_type should route deterministically (sorted first)
+        result1 = router({"input_type": "unknown"})
+        result2 = router({"input_type": "another_unknown"})
+        assert result1 == result2  # same fallback every time
+
+    def test_overlapping_input_types_connects_first(self):
+        """Builder connects to earliest topo successor when input_types overlap."""
+        descs = [
+            _desc("create", is_entry=True, produces=["job"]),
+            _desc("a", requires=["job"], produces=["out"]),
+            _desc("b", requires=["job", "out"], is_terminal=True),
+        ]
+        reg = NodeRegistry()
+        for d in descs:
+            reg.register(d)
+        resolved = DependencyResolver.resolve_all(reg, {})
+        builder = PipelineBuilder()
+        # Should NOT raise — connects to earliest in topo order
+        graph = builder.build(resolved)
+        compiled = graph.compile()
+        assert compiled is not None
+
+
 class TestFullPipelineCompilation:
     """Integration test: resolve + build + compile a realistic pipeline."""
 

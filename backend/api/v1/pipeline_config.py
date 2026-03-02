@@ -61,7 +61,14 @@ async def validate_pipeline_config(request: Request) -> dict[str, Any]:
 
     discover_nodes()
 
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return {"valid": False, "error": "Invalid JSON body"}
+
+    if not isinstance(body, dict):
+        return {"valid": False, "error": "Request body must be a JSON object"}
+
     input_type = body.get("input_type")
     config = body.get("config", {})
 
@@ -73,5 +80,5 @@ async def validate_pipeline_config(request: Request) -> dict[str, Any]:
             "topology": [d.name for d in resolved.ordered_nodes],
             "interrupt_before": resolved.interrupt_before,
         }
-    except ValueError as exc:
+    except (ValueError, KeyError, TypeError) as exc:
         return {"valid": False, "error": str(exc)}

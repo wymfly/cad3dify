@@ -16,7 +16,7 @@ class NodeDescriptor:
 
     name: str
     display_name: str
-    fn: Callable[..., Awaitable[None]]
+    fn: Callable[..., Awaitable[dict[str, Any] | None]]
 
     # Dependency graph
     requires: list[str | list[str]] = field(default_factory=list)
