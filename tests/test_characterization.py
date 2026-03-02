@@ -118,12 +118,10 @@ class TestHITLResumeContract:
         assert req.confirmed_spec == {"part_type": "rotational"}
         assert req.disclaimer_accepted is True
 
-    def test_confirm_with_user_node_outputs_status_confirmed(self):
+    @pytest.mark.asyncio
+    async def test_confirm_with_user_node_outputs_status_confirmed(self):
         """confirm_with_user_node must return status=confirmed."""
-        # This is already tested in test_graph_nodes_lifecycle.py
-        # but we re-assert here as a characterization test
         from backend.graph.nodes.lifecycle import confirm_with_user_node
-        import asyncio
 
         state = CadJobState(
             job_id="hitl-1",
@@ -132,7 +130,7 @@ class TestHITLResumeContract:
             confirmed_params={"d": 10},
             disclaimer_accepted=True,
         )
-        result = asyncio.get_event_loop().run_until_complete(confirm_with_user_node(state))
+        result = await confirm_with_user_node(state)
         assert result["status"] == "confirmed"
 
 
