@@ -177,13 +177,7 @@ export default function PipelineProgress({
         </div>
       )}
 
-      {/* LED pulse animation */}
-      <style>{`
-        @keyframes ledPulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
-        }
-      `}</style>
+      {/* LED pulse animation — uses globalStyles.css ledPulse */}
     </div>
   );
 }

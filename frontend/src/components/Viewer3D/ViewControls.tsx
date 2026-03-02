@@ -28,7 +28,6 @@ const DFAM_BUTTONS: { mode: DfamMode; label: string }[] = [
 
 interface ViewControlsProps {
   wireframe: boolean;
-  darkMode?: boolean;
   dfamMode?: DfamMode;
   dfamAvailable?: boolean;
   onWireframeToggle: () => void;
@@ -38,7 +37,6 @@ interface ViewControlsProps {
 
 export default function ViewControls({
   wireframe,
-  darkMode = false,
   dfamMode = 'normal',
   dfamAvailable,
   onWireframeToggle,

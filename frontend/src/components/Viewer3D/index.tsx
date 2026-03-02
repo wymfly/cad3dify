@@ -348,7 +348,6 @@ const Viewer3D = forwardRef<Viewer3DHandle, Viewer3DProps>(function Viewer3D({
 
       <ViewControls
         wireframe={wireframe}
-        darkMode={darkMode}
         dfamMode={dfamMode}
         dfamAvailable={dfamAvailable}
         onWireframeToggle={() => setInternalWireframe((v) => !v)}

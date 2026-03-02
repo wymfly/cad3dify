@@ -2,8 +2,7 @@
    CAD3Dify Industrial Design System — Global Styles
    ========================================================================== */
 
-/* --- Fonts ---------------------------------------------------------------- */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* --- Fonts: loaded via <link> in index.html for non-blocking delivery ----- */
 
 /* --- CSS Variables -------------------------------------------------------- */
 :root {
@@ -30,17 +29,30 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2D323A;
+  background: #C4C9D0;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3D434D;
+  background: #A0A8B4;
 }
 
 /* Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #2D323A transparent;
+  scrollbar-color: #C4C9D0 transparent;
+}
+
+/* Dark mode scrollbar */
+@media (prefers-color-scheme: dark) {
+  ::-webkit-scrollbar-thumb {
+    background: #2D323A;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3D434D;
+  }
+  * {
+    scrollbar-color: #2D323A transparent;
+  }
 }
 
 /* --- Keyframe Animations -------------------------------------------------- */
@@ -80,10 +92,10 @@ body {
 /* LED node pulse */
 @keyframes ledPulse {
   0%, 100% {
-    box-shadow: 0 0 4px currentColor;
+    opacity: 1;
   }
   50% {
-    box-shadow: 0 0 8px currentColor, 0 0 16px currentColor;
+    opacity: 0.4;
   }
 }
 
@@ -112,19 +124,3 @@ body {
   border-radius: 0 8px 8px 0;
 }
 
-/* Monospace data readout */
-.data-readout {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.5px;
-}
-
-/* Panel title — industrial uppercase */
-.panel-title {
-  font-family: var(--font-ui);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}

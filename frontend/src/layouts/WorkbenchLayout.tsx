@@ -239,6 +239,7 @@ export default function WorkbenchLayout() {
           <>
             <div
               className="hud-panel"
+              aria-hidden={leftCollapsed}
               style={{
                 ...panelBase,
                 left: 12,
@@ -248,13 +249,16 @@ export default function WorkbenchLayout() {
                 pointerEvents: leftCollapsed ? 'none' : 'auto',
               }}
             >
-              <Crosshair />
+              <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1 }}>
+                <Crosshair />
+              </div>
               {panels.left}
             </div>
 
             <Button
               type="text"
               size="small"
+              aria-label={leftCollapsed ? '展开左面板' : '折叠左面板'}
               icon={leftCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
               onClick={toggleLeft}
               style={{
@@ -270,6 +274,7 @@ export default function WorkbenchLayout() {
           <>
             <div
               className="hud-panel"
+              aria-hidden={rightCollapsed}
               style={{
                 ...panelBase,
                 right: 12,
@@ -279,13 +284,16 @@ export default function WorkbenchLayout() {
                 pointerEvents: rightCollapsed ? 'none' : 'auto',
               }}
             >
-              <Crosshair />
+              <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1 }}>
+                <Crosshair />
+              </div>
               {panels.right}
             </div>
 
             <Button
               type="text"
               size="small"
+              aria-label={rightCollapsed ? '展开右面板' : '折叠右面板'}
               icon={rightCollapsed ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
               onClick={toggleRight}
               style={{

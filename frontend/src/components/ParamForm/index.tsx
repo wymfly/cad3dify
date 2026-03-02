@@ -111,7 +111,6 @@ export default function ParamForm({
       </Form>
 
       <div
-        className="caution-stripe"
         style={{
           display: 'flex',
           justifyContent: 'flex-end',

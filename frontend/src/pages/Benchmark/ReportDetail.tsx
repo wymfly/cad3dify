@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Typography,
   Card,
@@ -122,6 +122,7 @@ export default function ReportDetail() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
   const dt = useDesignTokens();
+  const caseColumns = useMemo(() => getCaseColumns(dt.color), [dt.color]);
   const [report, setReport] = useState<BenchmarkReport | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -306,7 +307,7 @@ export default function ReportDetail() {
         style={{ marginTop: 16 }}
       >
         <Table<CaseResult>
-          columns={getCaseColumns(dt.color)}
+          columns={caseColumns}
           dataSource={results}
           rowKey="case_id"
           pagination={false}

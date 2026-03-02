@@ -35,7 +35,7 @@ export const colors = {
   // Text
   textPrimary: { dark: '#E2E8F0', light: '#1A202C' } as DualColor,
   textSecondary: { dark: '#8A95A5', light: '#718096' } as DualColor,
-  textTertiary: { dark: '#5A6577', light: '#A0AEC0' } as DualColor,
+  textTertiary: { dark: '#6B7789', light: '#A0AEC0' } as DualColor,
 
   // Borders
   border: { dark: '#2D323A', light: '#E2E8F0' } as DualColor,
@@ -90,7 +90,6 @@ export const layout = {
   topNavHeight: 48,
   leftPanelWidth: 320,
   rightPanelWidth: 280,
-  panelMinWidth: 52,
 } as const;
 
 // ---------------------------------------------------------------------------
