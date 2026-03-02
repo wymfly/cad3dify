@@ -187,6 +187,8 @@ class TestDualChannelTraceIntegration:
         traces = result["node_trace"]
         assert len(traces) == 1
         entry = traces[0]
-        assert entry["fallback_triggered"] is True
-        assert entry["strategy_used"] == "neural"
-        assert len(entry["strategies_attempted"]) == 2
+        assert "fallback" in entry
+        fb = entry["fallback"]
+        assert fb["fallback_triggered"] is True
+        assert fb["strategy_used"] == "neural"
+        assert len(fb["strategies_attempted"]) == 2

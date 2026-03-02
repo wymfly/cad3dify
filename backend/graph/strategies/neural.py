@@ -49,6 +49,9 @@ class NeuralStrategy(NodeStrategy):
             return False
 
         health_path = getattr(self.config, "health_check_path", "/health")
+        # Ensure health_path starts with /
+        if health_path and not health_path.startswith("/"):
+            health_path = f"/{health_path}"
         cache_key = (neural_endpoint, health_path)
 
         # Check cache
@@ -57,10 +60,13 @@ class NeuralStrategy(NodeStrategy):
             if _clock() - cached_time < _CACHE_TTL:
                 return cached_result
 
-        # Perform health check
+        # Perform health check (sync HTTP, mitigated by 30s cache TTL)
         url = f"{neural_endpoint.rstrip('/')}{health_path}"
+        health_timeout = getattr(self.config, "neural_timeout", 60)
+        # Cap health check timeout at 5s (config timeout is for inference)
+        check_timeout = min(health_timeout, 5)
         try:
-            resp = httpx.get(url, timeout=5)
+            resp = httpx.get(url, timeout=check_timeout)
             result = resp.status_code == 200
         except Exception as exc:
             logger.warning("Health check failed for %s: %s", url, exc)

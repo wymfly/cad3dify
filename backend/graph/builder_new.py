@@ -88,8 +88,15 @@ class PipelineBuilder:
         else:
             workflow.add_edge(START, resolved.ordered_nodes[0].name)
 
-        # Add conditional edges for input_type routing
-        self._add_routing_edges(workflow, resolved)
+        # Collect edges to skip (intercepted by interceptor chains)
+        intercepted_edges: set[tuple[str, str]] = set()
+        if interceptor_registry is not None:
+            intercepted_edges = self._get_intercepted_edges(
+                resolved, interceptor_registry,
+            )
+
+        # Add conditional edges for input_type routing (skipping intercepted)
+        self._add_routing_edges(workflow, resolved, intercepted_edges)
 
         # Insert interceptor edge chains (explicit declaration)
         if interceptor_registry is not None:
@@ -135,9 +142,9 @@ class PipelineBuilder:
                     "assets_produced": list(diff.get("assets", {}).keys()),
                 }
 
-                # Merge fallback trace if present
+                # Merge fallback trace under namespace to avoid key collision
                 if hasattr(ctx, '_fallback_trace') and ctx._fallback_trace:
-                    trace_entry.update(ctx._fallback_trace)
+                    trace_entry["fallback"] = ctx._fallback_trace
 
                 # Inject trace into diff
                 if "node_trace" not in diff:
@@ -176,8 +183,34 @@ class PipelineBuilder:
         wrapped.__name__ = f"wrapped_{desc.name}"
         return wrapped
 
+    def _get_intercepted_edges(
+        self,
+        resolved: ResolvedPipeline,
+        interceptor_registry: Any,
+    ) -> set[tuple[str, str]]:
+        """Return set of (src, dst) edges that will be replaced by interceptor chains."""
+        entries = interceptor_registry.list_interceptors()
+        if not entries:
+            return set()
+
+        by_after: dict[str, list[str]] = {}
+        for entry in entries:
+            by_after.setdefault(entry["after"], []).append(entry["name"])
+
+        adjacency: dict[str, list[str]] = {}
+        for src, dst in resolved.edges:
+            adjacency.setdefault(src, []).append(dst)
+
+        intercepted: set[tuple[str, str]] = set()
+        for after_node in by_after:
+            successors = adjacency.get(after_node, [])
+            if successors:
+                intercepted.add((after_node, successors[0]))
+        return intercepted
+
     def _add_routing_edges(
         self, workflow: StateGraph, resolved: ResolvedPipeline,
+        intercepted_edges: set[tuple[str, str]] | None = None,
     ) -> None:
         """Add edges between nodes based on resolved topology.
 
@@ -205,29 +238,39 @@ class PipelineBuilder:
         node_map = {d.name: d for d in resolved.ordered_nodes}
         topo_order = {d.name: i for i, d in enumerate(resolved.ordered_nodes)}
 
+        skip = intercepted_edges or set()
+
         for src_name, dst_names in adjacency.items():
             src_desc = node_map[src_name]
             if src_desc.is_terminal:
                 continue  # terminal → END handled separately
 
-            if len(dst_names) == 1:
-                workflow.add_edge(src_name, dst_names[0])
+            # Filter out intercepted edges (will be replaced by chains)
+            effective_dsts = [
+                d for d in dst_names if (src_name, d) not in skip
+            ]
+            if not effective_dsts:
+                # All edges intercepted — chains will be added later
+                continue
+
+            if len(effective_dsts) == 1:
+                workflow.add_edge(src_name, effective_dsts[0])
             else:
                 # Check if successors have distinct input_types → conditional routing
                 input_type_map = self._build_input_type_routing(
-                    dst_names, node_map,
+                    effective_dsts, node_map,
                 )
                 if input_type_map:
                     # Need a routing function + possible fallback handling
                     workflow.add_conditional_edges(
                         src_name,
                         self._make_router(src_desc, input_type_map, node_map),
-                        {name: name for name in dst_names},
+                        {name: name for name in effective_dsts},
                     )
                 else:
                     # Overlapping input_types — check reachability to decide
                     # single edge vs fan-out.
-                    first = min(dst_names, key=lambda n: topo_order.get(n, float("inf")))
+                    first = min(effective_dsts, key=lambda n: topo_order.get(n, float("inf")))
 
                     # BFS from first to find reachable nodes
                     reachable: set[str] = set()
@@ -239,13 +282,13 @@ class PipelineBuilder:
                                 reachable.add(nxt)
                                 stack.append(nxt)
 
-                    unreachable = [n for n in dst_names if n != first and n not in reachable]
+                    unreachable = [n for n in effective_dsts if n != first and n not in reachable]
 
                     if not unreachable:
                         # All skipped nodes reachable from first — single edge
                         workflow.add_edge(src_name, first)
-                        if len(dst_names) > 1:
-                            skipped = [n for n in dst_names if n != first]
+                        if len(effective_dsts) > 1:
+                            skipped = [n for n in effective_dsts if n != first]
                             logger.debug(
                                 "Node '%s': connecting to '%s' (earliest successor); "
                                 "%s reachable through dependency chain",
@@ -368,6 +411,15 @@ class PipelineBuilder:
 
             # For now, support single successor at insertion point
             next_node = successors[0]
+            if len(successors) > 1:
+                logger.warning(
+                    "Interceptor insertion point '%s' has %d successors; "
+                    "using first ('%s'). Others: %s",
+                    after_node, len(successors), next_node, successors[1:],
+                )
+
+            # Direct edge (after_node → next_node) was already skipped in
+            # _add_routing_edges via intercepted_edges set.
 
             # Build chain: after_node → int1 → int2 → ... → next_node
             chain = [after_node] + interceptor_names + [next_node]
@@ -375,8 +427,8 @@ class PipelineBuilder:
                 workflow.add_edge(chain[i], chain[i + 1])
 
             logger.info(
-                "Interceptor chain inserted: %s",
-                " → ".join(chain),
+                "Interceptor chain inserted: %s (direct edge %s→%s removed)",
+                " → ".join(chain), after_node, next_node,
             )
 
 

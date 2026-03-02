@@ -46,18 +46,19 @@ class LocalAssetStore:
         self, *, job_id: str, name: str, data: bytes, fmt: str,
     ) -> str:
         # Component-level traversal check: reject ".." in any path segment
-        for label, value in [("job_id", job_id), ("name", name)]:
-            if ".." in value:
+        for label, value in [("job_id", job_id), ("name", name), ("fmt", fmt)]:
+            if ".." in value or "/" in value or "\\" in value:
                 raise ValueError(
                     f"Path escapes workspace boundary: "
-                    f"'{label}' contains '..'"
+                    f"'{label}' contains path separator or '..'"
                 )
 
         target = self._workspace / "jobs" / job_id / f"{name}.{fmt}"
         resolved = target.resolve()
 
         # Belt-and-suspenders: final resolved path must stay inside workspace
-        if not str(resolved).startswith(str(self._workspace)):
+        ws_prefix = str(self._workspace) + os.sep
+        if not (str(resolved) + os.sep).startswith(ws_prefix):
             raise ValueError(
                 f"Path escapes workspace boundary: {resolved} "
                 f"is outside {self._workspace}"
@@ -73,6 +74,16 @@ class LocalAssetStore:
         else:
             path = Path(uri)
 
-        if not path.exists():
+        resolved = path.resolve()
+
+        # Workspace boundary check — prevent arbitrary file reads
+        ws_prefix = str(self._workspace) + os.sep
+        if not (str(resolved) + os.sep).startswith(ws_prefix):
+            raise ValueError(
+                f"URI escapes workspace boundary: {resolved} "
+                f"is outside {self._workspace}"
+            )
+
+        if not resolved.exists():
             raise FileNotFoundError(f"Asset not found: {uri}")
-        return path.read_bytes()
+        return resolved.read_bytes()

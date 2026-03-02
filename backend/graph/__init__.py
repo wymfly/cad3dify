@@ -33,8 +33,11 @@ def __getattr__(name: str):
 
                 def _build_graph():
                     discover_nodes()
+                    from backend.graph.interceptors import default_registry
                     resolved = DependencyResolver.resolve_all(registry, {})
-                    return builder_new.PipelineBuilder().build(resolved).compile()
+                    return builder_new.PipelineBuilder().build(
+                        resolved, interceptor_registry=default_registry,
+                    ).compile()
 
                 return _build_graph
         else:

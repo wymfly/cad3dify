@@ -81,6 +81,41 @@ class TestLocalAssetStoreSaveLoad:
             )
 
 
+    def test_path_traversal_in_fmt_rejected(self, tmp_path):
+        from backend.graph.asset_store import LocalAssetStore
+
+        store = LocalAssetStore(workspace=tmp_path)
+        with pytest.raises(ValueError, match="workspace boundary"):
+            store.save(
+                job_id="j1", name="mesh",
+                data=b"evil", fmt="../../../etc/passwd",
+            )
+
+    def test_fmt_with_slash_rejected(self, tmp_path):
+        from backend.graph.asset_store import LocalAssetStore
+
+        store = LocalAssetStore(workspace=tmp_path)
+        with pytest.raises(ValueError, match="workspace boundary"):
+            store.save(
+                job_id="j1", name="mesh",
+                data=b"evil", fmt="txt/../../config",
+            )
+
+    def test_load_rejects_uri_outside_workspace(self, tmp_path):
+        from backend.graph.asset_store import LocalAssetStore
+
+        store = LocalAssetStore(workspace=tmp_path)
+        with pytest.raises(ValueError, match="workspace boundary"):
+            store.load("file:///etc/passwd")
+
+    def test_load_rejects_relative_traversal(self, tmp_path):
+        from backend.graph.asset_store import LocalAssetStore
+
+        store = LocalAssetStore(workspace=tmp_path)
+        with pytest.raises(ValueError, match="workspace boundary"):
+            store.load(f"file://{tmp_path}/jobs/../../etc/passwd")
+
+
 class TestAssetStoreProtocol:
     def test_local_implements_protocol(self):
         from backend.graph.asset_store import AssetStore, LocalAssetStore
