@@ -63,12 +63,20 @@ def _summarize_outputs(diff: dict[str, Any], max_len: int = 500) -> dict[str, An
 class PipelineBuilder:
     """Build a LangGraph StateGraph from a ResolvedPipeline."""
 
-    def build(self, resolved: ResolvedPipeline) -> StateGraph:
+    def build(
+        self,
+        resolved: ResolvedPipeline,
+        interceptor_registry: Any = None,
+    ) -> StateGraph:
         workflow = StateGraph(PipelineState)
 
         # Register all nodes
         for desc in resolved.ordered_nodes:
             workflow.add_node(desc.name, self._wrap_node(desc))
+
+        # Apply interceptors (register nodes to workflow)
+        if interceptor_registry is not None:
+            interceptor_registry.apply(workflow)
 
         if not resolved.ordered_nodes:
             return workflow
@@ -82,6 +90,10 @@ class PipelineBuilder:
 
         # Add conditional edges for input_type routing
         self._add_routing_edges(workflow, resolved)
+
+        # Insert interceptor edge chains (explicit declaration)
+        if interceptor_registry is not None:
+            self._insert_interceptor_edges(workflow, resolved, interceptor_registry)
 
         # Terminal nodes → END
         for desc in resolved.ordered_nodes:
@@ -320,6 +332,53 @@ class PipelineBuilder:
 
         return router
 
+    def _insert_interceptor_edges(
+        self,
+        workflow: StateGraph,
+        resolved: ResolvedPipeline,
+        interceptor_registry: Any,
+    ) -> None:
+        """Insert interceptor chains by explicit declaration.
+
+        For each insertion point (e.g. after="convert_preview"), build a chain:
+        convert_preview → int1 → int2 → ... → next_node
+        """
+        entries = interceptor_registry.list_interceptors()
+        if not entries:
+            return
+
+        # Group interceptors by insertion point
+        by_after: dict[str, list[str]] = {}
+        for entry in entries:
+            by_after.setdefault(entry["after"], []).append(entry["name"])
+
+        # Build adjacency from resolved edges for reference
+        resolved_successors: dict[str, list[str]] = {}
+        for src, dst in resolved.edges:
+            resolved_successors.setdefault(src, []).append(dst)
+
+        for after_node, interceptor_names in by_after.items():
+            successors = resolved_successors.get(after_node, [])
+            if not successors:
+                logger.warning(
+                    "Interceptor insertion point '%s' has no successors "
+                    "in resolved pipeline", after_node,
+                )
+                continue
+
+            # For now, support single successor at insertion point
+            next_node = successors[0]
+
+            # Build chain: after_node → int1 → int2 → ... → next_node
+            chain = [after_node] + interceptor_names + [next_node]
+            for i in range(len(chain) - 1):
+                workflow.add_edge(chain[i], chain[i + 1])
+
+            logger.info(
+                "Interceptor chain inserted: %s",
+                " → ".join(chain),
+            )
+
 
 async def get_compiled_graph_new(
     pipeline_config: dict[str, dict] | None = None,
@@ -337,8 +396,10 @@ async def get_compiled_graph_new(
     config = pipeline_config or {}
     resolved = DependencyResolver.resolve_all(registry, config)
 
+    from backend.graph.interceptors import default_registry
+
     builder = PipelineBuilder()
-    graph = builder.build(resolved)
+    graph = builder.build(resolved, interceptor_registry=default_registry)
 
     # Checkpointer
     try:

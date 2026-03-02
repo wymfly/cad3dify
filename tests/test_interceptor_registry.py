@@ -88,3 +88,93 @@ class TestBuilderIntegration:
                     "generate_step_text", "generate_step_drawing", "convert_preview",
                     "check_printability", "finalize"}
         assert expected.issubset(node_names)
+
+
+class TestInterceptorInNewBuilder:
+    """Interceptor insertion in PipelineBuilder (builder_new.py)."""
+
+    def _make_resolved(self, edges=None):
+        """Helper to create a minimal ResolvedPipeline."""
+        from backend.graph.resolver import ResolvedPipeline
+        from backend.graph.descriptor import NodeDescriptor
+
+        async def noop(ctx):
+            pass
+
+        nodes = [
+            NodeDescriptor(
+                name="convert_preview",
+                display_name="Convert",
+                fn=noop,
+                produces=["preview_glb"],
+            ),
+            NodeDescriptor(
+                name="check_printability",
+                display_name="Check",
+                fn=noop,
+                requires=["step_model"],
+            ),
+            NodeDescriptor(
+                name="finalize",
+                display_name="Final",
+                fn=noop,
+                is_terminal=True,
+            ),
+        ]
+        return ResolvedPipeline(
+            ordered_nodes=nodes,
+            edges=edges or [
+                ("convert_preview", "check_printability"),
+                ("check_printability", "finalize"),
+            ],
+            asset_producers={},
+            interrupt_before=[],
+        )
+
+    def test_interceptor_inserted_between_convert_and_check(self):
+        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.interceptors import InterceptorRegistry
+
+        async def interceptor_fn(state):
+            return state
+
+        resolved = self._make_resolved()
+        interceptor_reg = InterceptorRegistry()
+        interceptor_reg.register("my_interceptor", interceptor_fn, after="convert_preview")
+
+        builder = PipelineBuilder()
+        graph = builder.build(resolved, interceptor_registry=interceptor_reg)
+
+        assert "my_interceptor" in graph.nodes
+
+    def test_interceptor_chain_order(self):
+        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.interceptors import InterceptorRegistry
+
+        async def int1(state):
+            return state
+
+        async def int2(state):
+            return state
+
+        resolved = self._make_resolved()
+        interceptor_reg = InterceptorRegistry()
+        interceptor_reg.register("int1", int1, after="convert_preview")
+        interceptor_reg.register("int2", int2, after="convert_preview")
+
+        builder = PipelineBuilder()
+        graph = builder.build(resolved, interceptor_registry=interceptor_reg)
+
+        assert "int1" in graph.nodes
+        assert "int2" in graph.nodes
+
+    def test_no_interceptors_graph_unchanged(self):
+        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.interceptors import InterceptorRegistry
+
+        resolved = self._make_resolved()
+        builder = PipelineBuilder()
+        graph = builder.build(resolved, interceptor_registry=InterceptorRegistry())
+
+        assert "convert_preview" in graph.nodes
+        assert "check_printability" in graph.nodes
