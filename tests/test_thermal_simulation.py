@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
 import numpy as np
 import pytest
 
@@ -78,3 +81,63 @@ class TestRulesThermalStrategy:
         report = strategy.analyze(mesh)
         assert "recommendations" in report
         assert len(report["recommendations"]) > 0
+
+
+class TestGradientThermalStrategy:
+    """Gradient strategy: layer-by-layer cross-section analysis."""
+
+    @pytest.fixture
+    def strategy(self):
+        from backend.graph.configs.thermal_simulation import \
+            ThermalSimulationConfig
+        from backend.graph.strategies.thermal.gradient import \
+            GradientThermalStrategy
+
+        cfg = ThermalSimulationConfig(strategy="gradient")
+        return GradientThermalStrategy(config=cfg)
+
+    def test_check_available(self, strategy):
+        assert strategy.check_available() is True
+
+    def test_analyze_returns_gradient_data(self, strategy):
+        """analyze(mesh, layer_height) returns layer-by-layer gradient data."""
+        import trimesh
+
+        mesh = trimesh.creation.box(extents=[20, 20, 40])
+        report = strategy.analyze(mesh, layer_height=0.2)
+        assert "layers" in report
+        assert "max_gradient" in report
+        assert len(report["layers"]) > 0
+
+    def test_gradient_includes_risk_level(self, strategy):
+        import trimesh
+
+        mesh = trimesh.creation.box(extents=[20, 20, 40])
+        report = strategy.analyze(mesh, layer_height=0.2)
+        assert "risk_level" in report
+        assert report["risk_level"] in ("low", "medium", "high")
+
+
+class TestThermalSimulationNode:
+    @pytest.mark.asyncio
+    async def test_node_registered(self):
+        from backend.graph.nodes.thermal_simulation import \
+            thermal_simulation_node
+
+        desc = thermal_simulation_node._node_descriptor
+        assert "rules" in desc.strategies
+        assert "gradient" in desc.strategies
+        assert desc.non_fatal is True
+        assert desc.name == "thermal_simulation"
+
+    @pytest.mark.asyncio
+    async def test_node_skips_without_input(self):
+        from backend.graph.nodes.thermal_simulation import \
+            thermal_simulation_node
+
+        ctx = MagicMock()
+        ctx.has_asset.return_value = False
+        ctx.config = MagicMock()
+        ctx.config.strategy = "rules"
+        await thermal_simulation_node(ctx)
+        ctx.put_data.assert_any_call("thermal_simulation_status", "skipped_no_input")
