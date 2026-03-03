@@ -1,4 +1,4 @@
-"""Tests for organic mesh pipeline nodes (mesh_repair, mesh_scale, boolean_cuts, export_formats).
+"""Tests for organic mesh pipeline nodes (mesh_healer, mesh_scale, boolean_cuts, export_formats).
 
 Validates that all 4 new nodes are properly registered in NodeRegistry
 and that their placeholder implementations work with NodeContext.
@@ -34,8 +34,8 @@ def _ensure_discovery() -> None:
 class TestMeshNodeRegistration:
     """Verify all 4 organic mesh nodes are registered with correct metadata."""
 
-    def test_mesh_repair_registered(self) -> None:
-        desc = registry.get("mesh_repair")
+    def test_mesh_healer_registered(self) -> None:
+        desc = registry.get("mesh_healer")
         assert desc.display_name == "网格修复"
         assert desc.requires == ["raw_mesh"]
         assert desc.produces == ["watertight_mesh"]
@@ -64,7 +64,7 @@ class TestMeshNodeRegistration:
 
     def test_pipeline_chain_produces_matches_requires(self) -> None:
         """Verify the dependency chain: repair → scale → cuts → export."""
-        repair = registry.get("mesh_repair")
+        repair = registry.get("mesh_healer")
         scale = registry.get("mesh_scale")
         cuts = registry.get("boolean_cuts")
         export = registry.get("export_formats")
@@ -96,33 +96,42 @@ def _make_ctx(node_name: str, data: dict | None = None, assets: dict | None = No
     if assets:
         for key, path in assets.items():
             asset_reg.put(key, path, "mesh", "test")
+    config = desc.config_model() if desc.config_model else BaseNodeConfig()
     return NodeContext(
         job_id="test-mesh-1",
         input_type="organic",
         assets=asset_reg,
         data=data or {},
-        config=BaseNodeConfig(),
+        config=config,
         descriptor=desc,
         node_name=node_name,
     )
 
 
-class TestMeshRepairNode:
+class TestMeshHealerNode:
     @pytest.mark.asyncio
-    async def test_placeholder_with_path(self) -> None:
-        from backend.graph.nodes.mesh_repair import mesh_repair_node
+    async def test_strategy_execute_called_with_path(self) -> None:
+        """Strategy.execute is called when raw_mesh_path is provided."""
+        from unittest.mock import AsyncMock, patch
 
-        ctx = _make_ctx("mesh_repair", data={"raw_mesh_path": "/tmp/raw.glb"})
-        await mesh_repair_node(ctx)
-        assert ctx.has_asset("watertight_mesh")
+        from backend.graph.nodes.mesh_healer import mesh_healer_node
+
+        ctx = _make_ctx("mesh_healer", data={"raw_mesh_path": "/tmp/raw.glb"})
+        mock_exec = AsyncMock()
+        with patch.object(
+            type(ctx.get_strategy()), "execute", mock_exec,
+        ):
+            await mesh_healer_node(ctx)
+        mock_exec.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_skips_without_path(self) -> None:
-        from backend.graph.nodes.mesh_repair import mesh_repair_node
+    async def test_raises_without_raw_mesh(self) -> None:
+        """Strategy raises ValueError when no raw mesh is available."""
+        from backend.graph.nodes.mesh_healer import mesh_healer_node
 
-        ctx = _make_ctx("mesh_repair", data={})
-        await mesh_repair_node(ctx)
-        assert not ctx.has_asset("watertight_mesh")
+        ctx = _make_ctx("mesh_healer", data={})
+        with pytest.raises((ValueError, KeyError)):
+            await mesh_healer_node(ctx)
 
 
 class TestMeshScaleNode:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import pytest
 
 
@@ -46,6 +48,72 @@ class TestGraphExports:
         from backend.graph import build_graph, get_compiled_graph
         assert callable(build_graph)
         assert callable(get_compiled_graph)
+
+
+class TestBuilderSwitch:
+    """Verify USE_NEW_BUILDER env var correctly routes to the right builder."""
+
+    # Core nodes present in both builders (legacy hand-coded + new @register_node).
+    CORE_NODES = {
+        "create_job",
+        "analyze_intent", "analyze_vision", "analyze_organic",
+        "confirm_with_user",
+        "generate_step_text", "generate_step_drawing",
+        "generate_organic_mesh",
+        "convert_preview", "check_printability",
+        "finalize",
+    }
+
+    @pytest.mark.parametrize("use_new", ["0", "1"])
+    def test_graph_compiles(self, monkeypatch, use_new) -> None:
+        """Both builder modes produce a compilable graph."""
+        monkeypatch.setenv("USE_NEW_BUILDER", use_new)
+        import backend.graph
+        build_fn = backend.graph.__getattr__("build_graph")
+        graph = build_fn()
+        assert graph is not None
+
+    @pytest.mark.parametrize("use_new", ["0", "1"])
+    def test_core_nodes_present(self, monkeypatch, use_new) -> None:
+        """Both builder modes include all core pipeline nodes."""
+        monkeypatch.setenv("USE_NEW_BUILDER", use_new)
+        import backend.graph
+        build_fn = backend.graph.__getattr__("build_graph")
+        graph = build_fn()
+        node_names = set(graph.nodes.keys())
+        missing = self.CORE_NODES - node_names
+        assert not missing, f"USE_NEW_BUILDER={use_new} missing nodes: {missing}"
+
+    def test_new_builder_has_stub_nodes(self, monkeypatch) -> None:
+        """New builder includes @register_node stub nodes that legacy lacks."""
+        monkeypatch.setenv("USE_NEW_BUILDER", "1")
+        import backend.graph
+        build_fn = backend.graph.__getattr__("build_graph")
+        graph = build_fn()
+        node_names = set(graph.nodes.keys())
+        # Stub nodes registered via @register_node in new builder only
+        for stub in ("mesh_healer", "mesh_scale", "boolean_cuts", "export_formats"):
+            assert stub in node_names, f"New builder should include stub node: {stub}"
+
+    def test_legacy_builder_has_postprocess_organic(self, monkeypatch) -> None:
+        """Legacy builder has postprocess_organic (uses @timed_node, not @register_node)."""
+        monkeypatch.setenv("USE_NEW_BUILDER", "0")
+        import backend.graph
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            build_fn = backend.graph.__getattr__("build_graph")
+        graph = build_fn()
+        assert "postprocess_organic" in set(graph.nodes.keys())
+
+    def test_default_is_new_builder(self, monkeypatch) -> None:
+        """Without env var, default is new builder (USE_NEW_BUILDER=1)."""
+        monkeypatch.delenv("USE_NEW_BUILDER", raising=False)
+        import backend.graph
+        build_fn = backend.graph.__getattr__("build_graph")
+        graph = build_fn()
+        node_names = set(graph.nodes.keys())
+        # New builder includes stub nodes, legacy doesn't
+        assert "mesh_healer" in node_names, "Default should use new builder"
 
 
 class TestTraceMerge:

@@ -289,7 +289,7 @@ class TestFullPipelinePaths:
             _desc("gen_text", requires=["confirmed_params"], produces=["step_model"], input_types=["text"]),
             _desc("gen_drawing", requires=["confirmed_params"], produces=["step_model"], input_types=["drawing"]),
             _desc("gen_mesh", requires=["confirmed_params"], produces=["raw_mesh"], input_types=["organic"]),
-            _desc("mesh_repair", requires=["raw_mesh"], produces=["watertight_mesh"], input_types=["organic"]),
+            _desc("mesh_healer", requires=["raw_mesh"], produces=["watertight_mesh"], input_types=["organic"]),
             _desc("check_print", requires=[["step_model", "watertight_mesh"]], produces=["report"]),
             _desc("finalize", is_terminal=True),
         )
@@ -307,7 +307,7 @@ class TestFullPipelinePaths:
         # Organic nodes excluded
         assert "analyze_organic" not in names
         assert "gen_mesh" not in names
-        assert "mesh_repair" not in names
+        assert "mesh_healer" not in names
 
     def test_organic_path(self):
         reg = self._build_full_registry()
@@ -316,7 +316,7 @@ class TestFullPipelinePaths:
         assert "create_job" in names
         assert "analyze_organic" in names
         assert "gen_mesh" in names
-        assert "mesh_repair" in names
+        assert "mesh_healer" in names
         assert "check_print" in names
         assert "finalize" in names
         # Text/drawing nodes excluded
