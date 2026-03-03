@@ -136,15 +136,26 @@ class TestMeshHealerNode:
 
 class TestMeshScaleNode:
     @pytest.mark.asyncio
-    async def test_placeholder_with_asset(self) -> None:
+    async def test_passthrough_without_organic_spec(self) -> None:
+        """No organic_spec in data -> passthrough (watertight_mesh = scaled_mesh)."""
+        import tempfile
+        import trimesh
+
         from backend.graph.nodes.mesh_scale import mesh_scale_node
+
+        # Create a real mesh file for the node to load
+        mesh = trimesh.primitives.Box().to_mesh()
+        tmp = tempfile.NamedTemporaryFile(suffix=".glb", delete=False)
+        mesh.export(tmp.name)
+        tmp.close()
 
         ctx = _make_ctx(
             "mesh_scale",
-            assets={"watertight_mesh": "/tmp/repaired.glb"},
+            assets={"watertight_mesh": tmp.name},
         )
         await mesh_scale_node(ctx)
         assert ctx.has_asset("scaled_mesh")
+        assert ctx.get_data("mesh_scale_status") == "passthrough"
 
     @pytest.mark.asyncio
     async def test_skips_without_asset(self) -> None:
@@ -153,6 +164,7 @@ class TestMeshScaleNode:
         ctx = _make_ctx("mesh_scale")
         await mesh_scale_node(ctx)
         assert not ctx.has_asset("scaled_mesh")
+        assert ctx.get_data("mesh_scale_status") == "skipped_no_input"
 
 
 class TestBooleanCutsNode:
