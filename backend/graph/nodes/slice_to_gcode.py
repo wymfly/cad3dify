@@ -22,13 +22,27 @@ from backend.graph.strategies.slice.prusaslicer import PrusaSlicerStrategy
 logger = logging.getLogger(__name__)
 
 # Priority order for mesh selection
-_MESH_PRIORITY = ["final_mesh", "scaled_mesh", "watertight_mesh"]
+_MESH_PRIORITY = [
+    "oriented_mesh",  # Phase 3: orientation-optimized
+    "lattice_mesh",  # Phase 3: lattice-filled
+    "final_mesh",  # Phase 2: boolean assembled
+    "scaled_mesh",  # Phase 2: scaled
+    "watertight_mesh",  # Phase 1: healed
+]
 
 
 @register_node(
     name="slice_to_gcode",
     display_name="切片出码",
-    requires=[["final_mesh", "scaled_mesh", "watertight_mesh"]],
+    requires=[
+        [
+            "oriented_mesh",
+            "lattice_mesh",
+            "final_mesh",
+            "scaled_mesh",
+            "watertight_mesh",
+        ]
+    ],
     produces=["gcode_bundle"],
     input_types=["organic"],
     config_model=SliceToGcodeConfig,
@@ -47,6 +61,14 @@ async def slice_to_gcode_node(ctx: NodeContext) -> None:
     2. Convert to STL if needed
     3. Execute slicer strategy (with fallback in auto mode)
     """
+    # Read support config from generate_supports node
+    support_config = ctx.get_data("support_config")
+    if support_config:
+        logger.info(
+            "slice_to_gcode: using support config from generate_supports: %s",
+            support_config,
+        )
+
     # Guard: no mesh available
     result = _select_best_mesh(ctx)
     if result is None:
@@ -88,7 +110,9 @@ def _ensure_stl(asset: AssetEntry, job_id: str) -> Path:
     Returns path to STL file (original or converted).
     """
     asset_path = Path(asset.path)
-    fmt = asset.format.lower() if asset.format else asset_path.suffix.lstrip(".").lower()
+    fmt = (
+        asset.format.lower() if asset.format else asset_path.suffix.lstrip(".").lower()
+    )
 
     if fmt == "stl":
         return asset_path
