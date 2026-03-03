@@ -125,27 +125,25 @@ class TestOrchestrateDrawingGeneration:
         with patch("backend.graph.nodes.generation.SafeExecutor") as mock_exec_cls:
             mock_exec_cls.return_value.execute.return_value = MagicMock(success=True)
 
-            # Score: a=0.5, b=0.9, c=0.3, then initial_score for refiner baseline
+            # Score: a=0.5, b=0.9, c=0.3 (best-of-N reuses best_score, no Stage 3.6)
             with patch("backend.graph.nodes.generation._score_geometry") as mock_score:
                 mock_score.side_effect = [
                     (True, True, False, False),   # candidate a
                     (True, True, True, True),      # candidate b
                     (True, False, False, False),   # candidate c
-                    (True, True, True, True),      # initial_score (stage 3.6)
                 ]
                 with patch("backend.graph.nodes.generation.score_candidate") as mock_sc:
-                    mock_sc.side_effect = [0.5, 0.9, 0.3, 0.9]
+                    mock_sc.side_effect = [0.5, 0.9, 0.3]
 
                     mock_refiner = AsyncMock()
                     mock_refiner.ainvoke.return_value = {"code": "code_b", "step_path": step_path}
                     mock_refiner_fn.return_value = mock_refiner
 
-                    with patch("backend.graph.nodes.generation.validate_step_geometry") as mock_geo:
-                        mock_geo.return_value = MagicMock(is_valid=True)
-
+                    with patch("backend.graph.nodes.generation.shutil") as mock_shutil:
                         state = {**_make_state(), "step_path": step_path}
                         config = _make_config(best_of_n=3)
                         result = await _orchestrate_drawing_generation(state, config)
+                        mock_shutil.move.assert_called_once()
 
         assert result.get("generated_code") is not None
         assert mock_chain.ainvoke.await_count == 3

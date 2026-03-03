@@ -324,12 +324,15 @@ def re_execute(state: RefinerState, config: RunnableConfig) -> dict:
     # Execute code in sandbox
     executor = SafeExecutor(timeout_s=60)
     exec_success = False
+    exec_stderr = ""
     try:
         result = executor.execute(code)
         exec_success = result.success
         if not exec_success:
-            logger.warning("Execution failed: %s", result.stderr[:200])
+            exec_stderr = (result.stderr or "")[:500]
+            logger.warning("Execution failed: %s", exec_stderr[:200])
     except Exception as exc:
+        exec_stderr = str(exc)
         logger.error("SafeExecutor error: %s", exc)
 
     updates: dict[str, Any] = {}
@@ -338,6 +341,11 @@ def re_execute(state: RefinerState, config: RunnableConfig) -> dict:
     # If execution failed, rollback immediately — don't score stale geometry
     if not exec_success:
         logger.warning("Execution failed, rolling back to previous code")
+        # Feed execution error to static_notes so coder_fix can learn from it
+        notes = list(state.get("static_notes") or [])
+        if exec_stderr:
+            notes.append(f"Execution error (rollback triggered): {exec_stderr[:300]}")
+        updates["static_notes"] = notes
         if state.get("prev_code"):
             updates["code"] = state["prev_code"]
             updates["step_path"] = state.get("prev_step_path", step_path)

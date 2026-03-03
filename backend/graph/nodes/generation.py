@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+import os
+import shutil
 import tempfile
 from pathlib import Path
 from string import Template
@@ -126,45 +128,67 @@ async def _orchestrate_drawing_generation(state: dict, config: dict) -> dict:
             return_exceptions=True,
         )
         # Phase 2: Execute each candidate in an isolated temp file, pick highest scorer
-        best_raw, best_score = None, -1.0
-        for i, raw_code in enumerate(codes):
-            if isinstance(raw_code, Exception) or raw_code is None:
-                continue
-            tmp_step = tempfile.NamedTemporaryFile(
-                suffix=".step", prefix=f"candidate_{i}_", delete=False,
-            )
-            tmp_step.close()
-            candidate_code = Template(raw_code).safe_substitute(output_filename=tmp_step.name)
-            executor = SafeExecutor(timeout_s=60)
-            exec_result = executor.execute(candidate_code)
-            if exec_result.success:
-                compiled, vol, bbox, topo = _score_geometry(tmp_step.name, spec, pipeline_config)
-                sc = float(score_candidate(compiled=compiled, volume_ok=vol, bbox_ok=bbox, topology_ok=topo))
-                if sc > best_score:
-                    best_raw, best_score = raw_code, sc
-        # Substitute winner with real step_path
-        code = Template(best_raw).safe_substitute(output_filename=step_path) if best_raw else None
+        best_raw, best_score, best_tmp = None, -1.0, None
+        tmp_paths: list[str] = []
+        try:
+            for i, raw_code in enumerate(codes):
+                if isinstance(raw_code, Exception) or raw_code is None:
+                    continue
+                tmp_step = tempfile.NamedTemporaryFile(
+                    suffix=".step", prefix=f"candidate_{i}_", delete=False,
+                )
+                tmp_step.close()
+                tmp_paths.append(tmp_step.name)
+                candidate_code = Template(raw_code).safe_substitute(output_filename=tmp_step.name)
+                executor = SafeExecutor(timeout_s=60)
+                exec_result = executor.execute(candidate_code)
+                if exec_result.success:
+                    compiled, vol, bbox, topo = _score_geometry(tmp_step.name, spec, pipeline_config)
+                    sc = float(score_candidate(compiled=compiled, volume_ok=vol, bbox_ok=bbox, topology_ok=topo))
+                    if sc > best_score:
+                        best_raw, best_score, best_tmp = raw_code, sc, tmp_step.name
+        finally:
+            # Clean up all temp files except the winner (moved below)
+            for p in tmp_paths:
+                if p != best_tmp:
+                    try:
+                        os.unlink(p)
+                    except OSError:
+                        pass
+
+        if best_tmp is not None:
+            # Move winning temp file to real step_path (avoid redundant re-execution)
+            shutil.move(best_tmp, step_path)
+            code = Template(best_raw).safe_substitute(output_filename=step_path)
+            initial_score = best_score
+        else:
+            code = None
+            initial_score = 0.0
     else:
         raw = await chain.ainvoke(modeling_input)
         code = Template(raw).safe_substitute(output_filename=step_path) if raw else None
+        initial_score = 0.0  # will be computed after execution
 
     if code is None:
         return {"status": "failed", "failure_reason": "generation_error", "error": "Code generation failed"}
 
-    # Stage 3: Execute code
-    executor = SafeExecutor()
-    executor.execute(code)
+    # Stage 3: Execute code (skipped for best-of-N winner — already moved)
+    if pipeline_config.best_of_n <= 1:
+        executor = SafeExecutor()
+        exec_result = executor.execute(code)
+        if not exec_result.success:
+            logger.warning("Stage 3 execution failed: %s", exec_result.stderr[:200] if exec_result.stderr else "unknown")
 
-    # Stage 3.5: Geometry validation (informational)
-    validate_step_geometry(step_path)
+        # Stage 3.5: Geometry validation (informational)
+        validate_step_geometry(step_path)
 
-    # Stage 3.6: Compute initial geometry score as refiner baseline
-    init_compiled, init_vol, init_bbox, init_topo = _score_geometry(
-        step_path, spec, pipeline_config
-    )
-    initial_score = float(score_candidate(
-        compiled=init_compiled, volume_ok=init_vol, bbox_ok=init_bbox, topology_ok=init_topo,
-    ))
+        # Stage 3.6: Compute initial geometry score as refiner baseline
+        init_compiled, init_vol, init_bbox, init_topo = _score_geometry(
+            step_path, spec, pipeline_config
+        )
+        initial_score = float(score_candidate(
+            compiled=init_compiled, volume_ok=init_vol, bbox_ok=init_bbox, topology_ok=init_topo,
+        ))
 
     # Stage 4: Refiner subgraph
     refiner = build_refiner_subgraph()
