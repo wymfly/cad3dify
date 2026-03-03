@@ -90,40 +90,47 @@ class RefinerState(TypedDict):
     step_path: str                   # STEP 文件路径
     drawing_spec: dict               # 图纸规格（子图内部存 dict，入口处由 DrawingSpec.model_dump() 转换）
     image_path: str                  # 原始图纸路径
-    round: int                       # 当前轮次
+    round: int                       # 当前轮次（re_execute 节点负责递增）
     max_rounds: int                  # 最大轮次
     verdict: str                     # "pending" | "pass" | "fail" | "max_rounds_reached"
     static_notes: list[str]          # Layer 1/2 诊断
     comparison_result: str | None    # VL 对比结果（供 coder_fix 使用，崩溃恢复后无需重新调用 VL）
     rendered_image_path: str | None  # 当前轮次渲染的 PNG 路径（确保每轮 re-render 后更新）
     prev_score: float | None         # 上一轮几何分数（用于 RollbackTracker 退化检测）
+    prev_code: str | None            # 上一轮代码快照（用于 rollback 场景）
+    prev_step_path: str | None       # 上一轮 STEP 文件路径（用于 rollback 后恢复）
 ```
 
 **子图拓扑（修正版）：**
 ```
 static_diagnose → render_for_compare → vl_compare → route_verdict
   ├─ verdict="pass" → END
-  ├─ verdict="fail" + round < max_rounds → coder_fix → re_execute → render_for_compare → vl_compare → route_verdict (循环)
+  ├─ verdict="fail" + round < max_rounds → coder_fix → re_execute(round += 1, snapshot prev_code/prev_step_path) → render_for_compare → vl_compare → route_verdict (循环)
   └─ verdict="fail" + round >= max_rounds → END (verdict="max_rounds_reached")
 ```
 
+**round 递增与 rollback 快照：** `re_execute` 节点在执行新代码前，先快照当前代码和 STEP 路径到 `prev_code`/`prev_step_path`，然后递增 `round += 1`，再执行。如果 `RollbackTracker` 检测到分数退化，从 `prev_code`/`prev_step_path` 恢复。
+
 **状态映射函数：**
 ```python
-def map_job_to_refiner(state: CadJobState, config: dict) -> RefinerState:
+def map_job_to_refiner(state: CadJobState, config: RunnableConfig) -> RefinerState:
     """CadJobState → RefinerState 入口映射，显式 DrawingSpec→dict 转换"""
     spec = state["drawing_spec"]
+    pipeline_config = config.get("configurable", {}).get("pipeline_config", PipelineConfig())
     return RefinerState(
         code=state["generated_code"],
         step_path=state["step_path"],
         drawing_spec=spec.model_dump() if isinstance(spec, DrawingSpec) else spec,
         image_path=state["image_path"],
         round=0,
-        max_rounds=config.get("max_refinements", 3),
+        max_rounds=pipeline_config.max_refinements,
         verdict="pending",
         static_notes=[],
         comparison_result=None,
         rendered_image_path=None,
         prev_score=None,
+        prev_code=None,
+        prev_step_path=None,
     )
 
 def map_refiner_to_job(refiner_state: RefinerState) -> dict:
@@ -186,8 +193,8 @@ result = validate_code_params(state["code"], spec)
 
 **用法示例：**
 ```python
-# 节点内获取配置
-pipeline_config = config["configurable"].get("pipeline_config", PipelineConfig())
+# 统一的 PipelineConfig 获取方式（所有节点和子图一致使用 .get() + 默认值，避免 KeyError）
+pipeline_config = config.get("configurable", {}).get("pipeline_config", PipelineConfig())
 if pipeline_config.topology_check:
     compare_topology(...)
 ```

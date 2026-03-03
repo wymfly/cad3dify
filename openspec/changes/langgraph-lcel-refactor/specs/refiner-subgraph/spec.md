@@ -50,12 +50,15 @@ The system SHALL define `RefinerState` as an independent `TypedDict` with explic
   - `comparison_result: str | None` — VL comparison output (persisted for coder_fix to use)
   - `rendered_image_path: str | None` — current round's rendered PNG path
   - `prev_score: float | None` — previous round's geometry score (for rollback detection)
+  - `prev_code: str | None` — previous round's code snapshot (for rollback restoration)
+  - `prev_step_path: str | None` — previous round's STEP file path (for rollback restoration)
 
 #### Scenario: State mapping at subgraph entry with type conversion
 - **WHEN** `generate_step_drawing_node` invokes the refiner subgraph
 - **THEN** it SHALL construct `RefinerState` from `CadJobState` fields: `generated_code → code`, `step_path → step_path`, `drawing_spec → drawing_spec`, `image_path → image_path`
 - **AND** `drawing_spec` SHALL be converted via `spec.model_dump()` if it is a `DrawingSpec` object (not already a dict)
-- **AND** set `round=0`, `max_rounds=config.max_refinements`, `verdict="pending"`, `comparison_result=None`, `rendered_image_path=None`, `prev_score=None`
+- **AND** set `round=0`, `max_rounds=pipeline_config.max_refinements`, `verdict="pending"`, `comparison_result=None`, `rendered_image_path=None`, `prev_score=None`, `prev_code=None`, `prev_step_path=None`
+- **AND** `pipeline_config` SHALL be obtained via `config.get("configurable", {}).get("pipeline_config", PipelineConfig())` (safe access with default)
 
 #### Scenario: State mapping at subgraph exit
 - **WHEN** the refiner subgraph completes
@@ -70,7 +73,7 @@ The system SHALL implement a `static_diagnose` node within the refiner subgraph 
 #### Scenario: Static diagnosis with valid STEP and type-safe validator call
 - **WHEN** `static_diagnose` runs with a valid STEP file
 - **THEN** it SHALL reconstruct `DrawingSpec` from `state["drawing_spec"]` dict via `DrawingSpec(**state["drawing_spec"])` before calling `validate_code_params(code, spec)`
-- **AND** it SHALL populate `static_notes` with any mismatches from `validate_code_params()`, `validate_bounding_box()`, and optionally `compare_topology()` (based on `config["configurable"]["pipeline_config"].topology_check`)
+- **AND** it SHALL populate `static_notes` with any mismatches from `validate_code_params()`, `validate_bounding_box()`, and optionally `compare_topology()` (based on `config.get("configurable", {}).get("pipeline_config", PipelineConfig()).topology_check`)
 - **AND** it SHALL NOT make any LLM calls
 
 #### Scenario: Static diagnosis with missing STEP
@@ -82,19 +85,25 @@ The system SHALL implement a `static_diagnose` node within the refiner subgraph 
 
 The system SHALL integrate `RollbackTracker` within the refiner subgraph to detect score degradation after each fix round, using `prev_score` in RefinerState.
 
-#### Scenario: Code fix degrades geometry score
+#### Scenario: re_execute node increments round and snapshots previous state
+- **WHEN** `re_execute` node begins execution
+- **THEN** it SHALL snapshot `state["code"]` → `prev_code` and `state["step_path"]` → `prev_step_path` before executing new code
+- **AND** it SHALL increment `round += 1` after successful execution
+- **AND** it SHALL score the new STEP via `_score_geometry()` and update `prev_score`
+
+#### Scenario: Code fix degrades geometry score — rollback from snapshot
 - **WHEN** `re_execute` node completes and the new geometry score is lower than `state["prev_score"]`
-- **THEN** the subgraph SHALL rollback to the previous round's code
+- **THEN** the subgraph SHALL restore `state["code"]` from `prev_code` and `state["step_path"]` from `prev_step_path`
 - **AND** dispatch `job.refining` SSE event with `{"round": N, "status": "rollback"}`
-- **AND** re-execute the rolled-back code to restore the STEP file
+- **AND** re-execute the rolled-back code to ensure the STEP file is consistent
 
 #### Scenario: Code fix improves or maintains score
 - **WHEN** `re_execute` node completes and the geometry score is >= `state["prev_score"]`
-- **THEN** the subgraph SHALL update `prev_score` with the new score, accept the new code, and continue to the next round or exit
+- **THEN** the subgraph SHALL accept the new code and continue to render_for_compare → vl_compare (next round) or exit
 
 ### Requirement: PipelineConfig accessible via LangGraph configurable
 
-The system SHALL access `PipelineConfig` parameters within the refiner subgraph via `config["configurable"]["pipeline_config"]`, supporting:
+The system SHALL access `PipelineConfig` parameters within the refiner subgraph via `config.get("configurable", {}).get("pipeline_config", PipelineConfig())`, supporting:
 - `rollback_on_degrade` → whether RollbackTracker is enabled
 - `structured_feedback` → text vs structured VL feedback mode
 - `topology_check` → whether to run topology comparison in static_diagnose

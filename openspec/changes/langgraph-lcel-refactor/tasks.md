@@ -14,19 +14,19 @@
 
 ## 2. Refiner 子图
 
-- [ ] 2.1 定义 `RefinerState` TypedDict（含 `comparison_result`, `rendered_image_path`, `prev_score` 字段）和状态映射函数（`map_job_to_refiner` / `map_refiner_to_job`，含 `DrawingSpec` → dict 显式转换），放在 `backend/graph/subgraphs/refiner.py`
-- [ ] 2.2 实现 `static_diagnose` 节点：从 `drawing_spec: dict` 还原 `DrawingSpec(**state["drawing_spec"]")` 后调用 `validate_code_params()` + `validate_bounding_box()` + 可选 `compare_topology()`（通过 `config["configurable"]["pipeline_config"].topology_check` 控制），结果写入 `static_notes`
+- [ ] 2.1 定义 `RefinerState` TypedDict（含 `comparison_result`, `rendered_image_path`, `prev_score`, `prev_code`, `prev_step_path` 字段）和状态映射函数（`map_job_to_refiner` / `map_refiner_to_job`，含 `DrawingSpec` → dict 显式转换，`max_rounds` 从 `pipeline_config.max_refinements` 获取），放在 `backend/graph/subgraphs/refiner.py`
+- [ ] 2.2 实现 `static_diagnose` 节点：从 `drawing_spec: dict` 还原 `DrawingSpec(**state["drawing_spec"])` 后调用 `validate_code_params()` + `validate_bounding_box()` + 可选 `compare_topology()`（通过 `config.get("configurable", {}).get("pipeline_config", PipelineConfig()).topology_check` 控制），结果写入 `static_notes`
 - [ ] 2.3 实现 `render_for_compare` 节点：渲染 STEP → PNG（支持多视角降级到单视角，通过 `pipeline_config.multi_view_render` 控制），更新 `state["rendered_image_path"]`
 - [ ] 2.4 实现 `vl_compare` 节点：调用 `build_compare_chain(structured=pipeline_config.structured_feedback)` 进行 VL 对比，将对比结果写入 `state["comparison_result"]`，解析 verdict（pass/fail），派发 `job.refining` SSE 事件
 - [ ] 2.5 实现 `coder_fix` 节点：调用 `build_fix_chain()` 修复代码，合并 `state["comparison_result"]` + `static_notes` 作为 fix_instructions，派发 `job.refining` SSE 事件
-- [ ] 2.6 实现 `re_execute` 节点：沙箱执行修复后的代码（`SafeExecutor`），集成 `RollbackTracker` 基于 `state["prev_score"]` 检测分数退化，更新 `prev_score`
+- [ ] 2.6 实现 `re_execute` 节点：先快照当前 `code` → `prev_code`、`step_path` → `prev_step_path`，再递增 `round += 1`，然后沙箱执行修复后的代码（`SafeExecutor`），评分后集成 `RollbackTracker` 基于 `prev_score` 检测分数退化（退化时从 `prev_code`/`prev_step_path` 恢复），更新 `prev_score`
 - [ ] 2.7 实现 `build_refiner_subgraph()`: 组装 `static_diagnose → render_for_compare → vl_compare → route_verdict → [pass: END, fail+round<max: coder_fix → re_execute → render_for_compare (循环), fail+round>=max: END]` 子图拓扑。注意循环中包含 re-render 步骤
 - [ ] 2.8 为子图编写集成测试：mock 所有 LLM chain，验证 1 轮 PASS 退出、3 轮 max_rounds 退出、rollback 场景、`comparison_result` 在 coder_fix 中可用
 - [ ] 2.9 运行 refiner 子图测试并提交：`uv run pytest tests/test_refiner_subgraph.py -v`
 
 ## 3. 节点层迁移——analyze_vision_node
 
-- [ ] 3.1 重写 `analyze_vision_node`: 移除 `asyncio.to_thread(_run_analyze_vision)`，改为直接 `chain = build_vision_analysis_chain(); await chain.ainvoke({"image_type": image.type, "image_data": image.data})`（显式 ImageData → flat dict 适配，替代旧 `prep_inputs()`）
+- [ ] 3.1 重写 `analyze_vision_node`: 移除 `asyncio.to_thread(_run_analyze_vision)`，改为直接 `chain = build_vision_analysis_chain(); result = await asyncio.wait_for(chain.ainvoke({"image_type": image.type, "image_data": image.data}), timeout=60.0)`（显式 ImageData → flat dict 适配，替代旧 `prep_inputs()`；保留 60s 轻量节点超时保护）
 - [ ] 3.2 在节点中内联 OCR fusion 调用（`fuse_ocr_with_spec()`），保持 graceful degradation
 - [ ] 3.3 保留 `_cost_optimizer` 结果缓存逻辑（cache hit 时跳过 LLM）
 - [ ] 3.4 更新 `tests/test_drawing_analyzer.py`: mock 从 `DrawingAnalyzerChain.invoke` 改为 mock `build_vision_analysis_chain` 返回的 Runnable
