@@ -82,14 +82,14 @@ class TestPhase2ModulesImport:
 
 
 class TestPipelineAcceptsConfig:
-    """Test that generate_step_v2 accepts a config parameter."""
+    """Test that analyze_and_generate_step accepts a config parameter."""
 
-    def test_generate_step_v2_signature_accepts_config(self) -> None:
-        """generate_step_v2 should accept config parameter."""
+    def test_analyze_and_generate_step_signature_accepts_config(self) -> None:
+        """analyze_and_generate_step should accept config parameter."""
         import inspect
-        from backend.pipeline.pipeline import generate_step_v2
+        from backend.pipeline.pipeline import analyze_and_generate_step
 
-        sig = inspect.signature(generate_step_v2)
+        sig = inspect.signature(analyze_and_generate_step)
         assert "config" in sig.parameters
         param = sig.parameters["config"]
         assert param.default is None
@@ -97,9 +97,9 @@ class TestPipelineAcceptsConfig:
     def test_default_config_is_balanced(self) -> None:
         """When config=None, pipeline should use balanced preset internally."""
         # This tests the import + signature, not execution
-        from backend.pipeline.pipeline import generate_step_v2
+        from backend.pipeline.pipeline import analyze_and_generate_step
 
-        assert callable(generate_step_v2)
+        assert callable(analyze_and_generate_step)
 
 
 class TestSmartRefinerAcceptsPhase2Params:

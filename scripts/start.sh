@@ -17,19 +17,32 @@ FRONTEND_PORT=3001
 BACKEND_PID_FILE="$PROJECT_ROOT/.backend.pid"
 FRONTEND_PID_FILE="$PROJECT_ROOT/.frontend.pid"
 
+kill_port() {
+    local port=$1
+    local label=$2
+    local pids
+    pids=$(lsof -ti :"$port" 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+        echo "$pids" | xargs kill 2>/dev/null || true
+        sleep 0.5
+        # 仍有残留则 SIGKILL
+        local remaining
+        remaining=$(lsof -ti :"$port" 2>/dev/null || true)
+        if [ -n "$remaining" ]; then
+            echo "$remaining" | xargs kill -9 2>/dev/null || true
+            sleep 0.3
+        fi
+        echo "  $label (端口 $port) 已停止"
+    else
+        echo "  $label (端口 $port) 未在运行"
+    fi
+}
+
 stop_services() {
     echo "⏹ 停止服务..."
-    if [ -f "$BACKEND_PID_FILE" ]; then
-        kill "$(cat "$BACKEND_PID_FILE")" 2>/dev/null && echo "  后端已停止" || echo "  后端未在运行"
-        rm -f "$BACKEND_PID_FILE"
-    fi
-    if [ -f "$FRONTEND_PID_FILE" ]; then
-        kill "$(cat "$FRONTEND_PID_FILE")" 2>/dev/null && echo "  前端已停止" || echo "  前端未在运行"
-        rm -f "$FRONTEND_PID_FILE"
-    fi
-    # 清理残留进程
-    pkill -f "uvicorn backend.main:app.*$BACKEND_PORT" 2>/dev/null || true
-    pkill -f "vite.*$FRONTEND_PORT" 2>/dev/null || true
+    kill_port "$BACKEND_PORT" "后端"
+    kill_port "$FRONTEND_PORT" "前端"
+    rm -f "$BACKEND_PID_FILE" "$FRONTEND_PID_FILE"
 }
 
 start_backend() {
