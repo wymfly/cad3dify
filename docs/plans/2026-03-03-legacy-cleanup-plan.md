@@ -166,9 +166,9 @@ git commit -m "chore: remove V1 fallback, cadpilot/ compat shim, backend/v1/, ol
 - Modify: `tests/test_vector_retrieval.py`
 - Modify: `backend/graph/nodes/generation.py:38`
 
-**Step 1: 批量替换 import 路径**
+**Step 1: 批量替换 import 路径和 @patch 路径**
 
-每个文件中的替换规则：
+每个文件中的替换规则（同时适用于 `import` 语句和 `@patch()` 装饰器）：
 
 | 旧路径 | 新路径 |
 |--------|--------|
@@ -178,6 +178,8 @@ git commit -m "chore: remove V1 fallback, cadpilot/ compat shim, backend/v1/, ol
 | `cadpilot.v2.smart_refiner` | `backend.core.smart_refiner` |
 | `cadpilot.v2.drawing_analyzer` | `backend.core.drawing_analyzer` |
 | `cadpilot.v2.validators` | `backend.core.validators` |
+
+> ⚠️ 注意：不仅要替换 `from cadpilot...` import，还要替换 `@patch("cadpilot...")` 装饰器中的路径！
 
 具体文件修改：
 
@@ -238,10 +240,12 @@ from backend.core.modeling_strategist import _extract_features_from_spec
 # 旧
 from cadpilot.knowledge.part_types import (
 from cadpilot.v2.smart_refiner import SmartRefiner
+@patch("cadpilot.v2.smart_refiner._get_bbox_from_step")  # 第 133、155 行
 
 # 新
 from backend.knowledge.part_types import (
 from backend.core.smart_refiner import SmartRefiner
+@patch("backend.core.smart_refiner._get_bbox_from_step")  # 第 133、155 行
 ```
 
 `tests/test_drawing_analyzer.py`:
@@ -312,7 +316,8 @@ git commit -m "refactor: migrate imports from cadpilot.xxx to backend.xxx"
 - Delete: `backend/graph/builder.py` (旧 wrapper)
 - Rename: `backend/graph/builder_new.py` → `backend/graph/builder.py`
 - Modify: `backend/graph/__init__.py`
-- Modify: `backend/graph/routing.py`
+- Delete/Modify: `backend/graph/routing.py` (删除 builder_legacy 专用路由，可能整个文件变空)
+- Delete: `tests/test_graph_routing.py` (测试已删除的路由函数)
 - Modify: `backend/graph/nodes/organic.py`
 - Modify: `tests/test_graph_builder.py`
 - Modify: `tests/test_builder_new.py` → rename to `tests/test_builder.py`
@@ -360,12 +365,6 @@ the USE_NEW_BUILDER environment variable (default OFF).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from backend.graph.builder import build_graph as build_graph
-    from backend.graph.builder import get_compiled_graph as get_compiled_graph
-
 __all__ = ["build_graph", "get_compiled_graph"]
 
 
@@ -393,9 +392,16 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 ```
 
-**Step 5: 删除 routing.py 中 `route_after_organic_mesh`**
+**Step 5: 清理 routing.py 中 builder_legacy 专用路由**
 
-`route_after_organic_mesh` 仅被 `builder_legacy.py` 使用。删除该函数（第 13-21 行）。同时删除 `builder_legacy.py` 中对它的 import（已随文件删除）。
+`builder_legacy.py` 删除后，以下 3 个函数全部变成死代码（新 builder 不使用它们）：
+- `route_after_organic_mesh`（第 13-21 行）— builder_legacy 专用
+- `route_by_input_type`（第 8-10 行）— 仅被 builder_legacy 调用
+- `route_after_confirm`（第 24-31 行）— 仅被 builder_legacy 调用，且返回已删除的 `"generate_organic_mesh"` 节点名
+
+全部删除。如果 `routing.py` 变为空文件，删除该文件。
+
+同时删除 `tests/test_graph_routing.py`——测试的全是上述死代码函数。
 
 **Step 6: 删除 organic.py 中 deprecated 函数**
 
@@ -405,6 +411,10 @@ def __getattr__(name: str):
 
 保留 `analyze_organic_node`（第 37-104 行）和 `_safe_update_job`。
 
+删除后清理因此变为未使用的 import：
+- `from pathlib import Path`（仅在已删函数中使用）
+- `from backend.graph.decorators import timed_node`（仅在 `@timed_node("postprocess_organic")` 使用）
+
 **Step 7: 更新所有引用 `builder_new` 的测试文件**
 
 全局替换 `from backend.graph.builder_new import` → `from backend.graph.builder import`：
@@ -413,7 +423,7 @@ def __getattr__(name: str):
 - `tests/test_builder_new.py` — 重命名为 `tests/test_builder.py`，并更新内部 import 和 patch 路径
 - `tests/test_graph_builder.py` — 删除 `TestBuilderSwitch` 类（测试 `USE_NEW_BUILDER` 双轨切换），更新 `TestBuildGraph.test_graph_has_expected_nodes` 移除 `generate_organic_mesh` 和 `postprocess_organic`
 - `tests/test_mesh_healer.py` — 替换 `builder_new` → `builder`
-- `tests/test_interceptor_registry.py` — 替换 `builder_new` → `builder`
+- `tests/test_interceptor_registry.py` — 替换 `builder_new` → `builder`，同时更新 `TestBuilderIntegration`（第 77-90 行）的 `from backend.graph.builder import build_graph` → `from backend.graph import build_graph`
 - `tests/test_phase2_integration.py` — 替换 `builder_new` → `builder`
 - `tests/test_dual_channel_e2e.py` — 替换 `builder_new` → `builder`
 
@@ -427,6 +437,19 @@ mv tests/test_builder_new.py tests/test_builder.py
 - `"backend.graph.builder_new._safe_dispatch"` → `"backend.graph.builder._safe_dispatch"`
 
 **Step 8: 更新 test_graph_builder.py**
+
+> ⚠️ 关键：旧 `builder.py`（wrapper）导出 `build_graph` 和 `get_compiled_graph`，但 `builder_new.py`（将成为新 `builder.py`）没有这两个名称。需要将所有 `from backend.graph.builder import build_graph` 改为 `from backend.graph import build_graph`（通过 `__init__.py.__getattr__` 提供）。
+
+更新 import（第 12、17、35、41 行）：
+```python
+# 旧
+from backend.graph.builder import build_graph
+from backend.graph.builder import get_compiled_graph
+
+# 新
+from backend.graph import build_graph
+from backend.graph import get_compiled_graph
+```
 
 删除 `TestBuilderSwitch` 类整体（第 53-119 行，测试 `USE_NEW_BUILDER` 双轨），它不再有意义。
 
@@ -507,7 +530,7 @@ initial_state: dict[str, Any] = {
 
 **Step 13: 验证无遗留引用**
 
-Run: `git grep -rn "builder_legacy\|builder_new\|USE_NEW_BUILDER\|generate_organic_mesh_node\|postprocess_organic_node\|_load_reference_image" -- "*.py"`
+Run: `git grep -rn "builder_legacy\|builder_new\|USE_NEW_BUILDER\|generate_organic_mesh_node\|postprocess_organic_node\|_load_reference_image\|route_after_organic_mesh\|route_after_confirm\|route_by_input_type" -- "*.py"`
 Expected: 0 结果（`generate_raw_mesh.py` 中可能有注释 "Replaces the monolithic generate_organic_mesh_node"，清理该注释）
 
 **Step 14: 运行完整测试套件**
@@ -616,7 +639,14 @@ logger.info("Stage 1: Analyzing drawing with VL model...")
 将 analyze_and_generate_step 的 on_spec_ready / on_progress 回调映射为 ...
 ```
 
-**Step 4: 清理代码中的版本标签注释**
+**Step 4: 更新 start.sh 内部自引用**
+
+重命名后的 `scripts/start.sh`（原 `start-v3.sh`）内部仍有旧路径引用：
+- 第 2 行：`# CAD3Dify V3 启动脚本` → `# CAD3Dify 启动脚本`
+- 第 6-9 行：用法示例中的 `./scripts/start-v3.sh` → `./scripts/start.sh`
+- 第 106 行：`./scripts/start-v3.sh stop` → `./scripts/start.sh stop`
+
+**Step 5: 清理代码中的版本标签注释**
 
 `backend/graph/nodes/mesh_scale.py:3`:
 ```python
@@ -652,7 +682,7 @@ Replaces the monolithic generate_organic_mesh_node with a strategy-based
 - 移除所有 `[V2]` 日志前缀（已在 Step 3 部分处理）
 - 更新 `# V2 pipeline entry point` 注释为 `# Pipeline entry point`
 
-**Step 5: 更新 CLAUDE.md**
+**Step 6: 更新 CLAUDE.md**
 
 更新项目结构部分：
 - 移除 `cadpilot/` 目录描述
@@ -663,7 +693,7 @@ Replaces the monolithic generate_organic_mesh_node with a strategy-based
 - 更新验证命令
 - 更新"启动服务"部分（移除 V2 Streamlit 入口）
 
-**Step 6: 最终验证**
+**Step 7: 最终验证**
 
 Run: `git grep -rn "from cadpilot\|USE_NEW_BUILDER\|builder_legacy\|builder_new\|generate_step_v2\|generate_step_from_2d_cad_image" -- "*.py"`
 Expected: 0 结果
@@ -674,7 +704,7 @@ Expected: 全部 PASS
 Run: `cd frontend && npx tsc --noEmit`
 Expected: 无错误
 
-**Step 7: Commit**
+**Step 8: Commit**
 
 ```bash
 git add -A
