@@ -250,15 +250,28 @@ def diagnose(mesh: trimesh.Trimesh) -> MeshDiagnosis:
 
     # Determine level
     if not is_wt:
-        # Check for severe: self-intersection (expensive, use heuristic)
-        # Heuristic: if mesh has many non-manifold edges or very low
-        # watertight ratio, it's severe
         edges = mesh.edges_sorted
         from collections import Counter
         edge_counts = Counter(map(tuple, edges))
         non_manifold_count = sum(1 for c in edge_counts.values() if c > 2)
 
+        # Severe heuristics:
+        # 1. High ratio of non-manifold edges → likely self-intersection
+        # 2. Missing face ratio: compare actual faces to expected for a
+        #    closed surface (Euler formula: V - E + F = 2 for genus-0).
+        #    Large deviation suggests large missing areas.
+        expected_faces = 2 * len(mesh.vertices) - 4  # genus-0 estimate
+        if expected_faces > 0:
+            missing_ratio = max(0, 1 - len(mesh.faces) / expected_faces)
+        else:
+            missing_ratio = 0.0
+
         if non_manifold_count > len(mesh.edges_unique) * 0.1:
+            issues.append(f"high non-manifold ratio ({non_manifold_count} edges, possible self-intersection)")
+            return MeshDiagnosis(level="severe", issues=issues)
+
+        if missing_ratio > 0.3:
+            issues.append(f"missing face ratio {missing_ratio:.1%}")
             return MeshDiagnosis(level="severe", issues=issues)
 
         return MeshDiagnosis(level="moderate", issues=issues)
@@ -274,6 +287,7 @@ def validate_repair(mesh: trimesh.Trimesh) -> bool:
     - mesh.is_watertight == True
     - volume > 0
     - has faces (no degenerate mesh)
+    - no degenerate faces (zero-area triangles)
     """
     if len(mesh.faces) == 0 or len(mesh.vertices) == 0:
         return False
@@ -285,6 +299,13 @@ def validate_repair(mesh: trimesh.Trimesh) -> bool:
             return False
     except Exception:
         return False
+    # Check for degenerate faces (zero-area triangles)
+    try:
+        areas = mesh.area_faces
+        if (areas < 1e-10).any():
+            return False
+    except Exception:
+        pass
     return True
 ```
 
@@ -336,8 +357,9 @@ class TestAlgorithmHealStrategy:
 
         ctx = MagicMock()
         if use_data_path:
-            # Simulate upstream: no asset, path in data dict
-            ctx.get_asset.return_value = None
+            # Simulate upstream: AssetRegistry.get() raises KeyError,
+            # path is in state data dict instead.
+            ctx.get_asset.side_effect = KeyError("raw_mesh")
             ctx.get_data.return_value = tmp.name
         else:
             ctx.get_asset.return_value = MagicMock(path=tmp.name)
@@ -441,10 +463,11 @@ class AlgorithmHealStrategy(NodeStrategy):
         # 1. Load mesh — bridge upstream contract
         # Upstream generate_organic_mesh_node writes raw_mesh_path to state
         # dict (not asset registry), so we try asset first, fallback to data.
-        raw_asset = ctx.get_asset("raw_mesh")
-        if raw_asset is not None:
+        # Note: AssetRegistry.get() raises KeyError when key not found.
+        try:
+            raw_asset = ctx.get_asset("raw_mesh")
             mesh_path = raw_asset.path
-        else:
+        except KeyError:
             mesh_path = ctx.get_data("raw_mesh_path")
             if mesh_path is None:
                 raise ValueError("No raw mesh found in assets or data")
@@ -616,7 +639,7 @@ class AlgorithmHealStrategy(NodeStrategy):
                 "repair_level": level,
             },
         )
-        ctx.put_data("mesh_repair_status", f"repaired_{level}")
+        ctx.put_data("mesh_healer_status", f"repaired_{level}")
 ```
 
 **Step 4: 运行测试确认通过**
@@ -716,29 +739,62 @@ class TestEscalationChain:
                 with pytest.raises(RuntimeError, match="All algorithm repair levels exhausted"):
                     AlgorithmHealStrategy()._escalate(mesh, diag)
 
-    def test_escalation_chain_order_matches_severity(self):
-        """severe 直接从 Level 3 开始，mild 从 Level 1 开始。"""
+    def test_escalation_chain_order_severe_starts_at_level3(self):
+        """severe 直接从 Level 3 开始，不调用 Level 1/2。"""
         from backend.graph.strategies.heal.algorithm import AlgorithmHealStrategy
         from backend.graph.strategies.heal.diagnose import MeshDiagnosis
 
         strategy = AlgorithmHealStrategy()
-        call_order = []
-
-        def track(fn_name, original_fn):
-            def wrapper(mesh):
-                call_order.append(fn_name)
-                return original_fn(mesh)
-            return wrapper
-
         good_mesh = trimesh.primitives.Box().to_mesh()
 
-        # Test severe → starts at level3 directly
-        call_order.clear()
-        with patch.object(strategy, "_level3_meshlib", return_value=good_mesh):
-            strategy._escalate(
-                good_mesh, MeshDiagnosis(level="severe", issues=["self-intersection"])
-            )
-        # Should NOT have called level1 or level2
+        l1_called = False
+        l2_called = False
+
+        original_l1 = strategy._level1_trimesh
+        original_l2 = strategy._level2_pymeshfix
+
+        def track_l1(mesh):
+            nonlocal l1_called
+            l1_called = True
+            return original_l1(mesh)
+
+        def track_l2(mesh):
+            nonlocal l2_called
+            l2_called = True
+            return original_l2(mesh)
+
+        with patch.object(strategy, "_level1_trimesh", side_effect=track_l1):
+            with patch.object(strategy, "_level2_pymeshfix", side_effect=track_l2):
+                with patch.object(strategy, "_level3_meshlib", return_value=good_mesh):
+                    strategy._escalate(
+                        good_mesh,
+                        MeshDiagnosis(level="severe", issues=["self-intersection"]),
+                    )
+        assert not l1_called, "Level 1 should NOT be called for severe"
+        assert not l2_called, "Level 2 should NOT be called for severe"
+
+    def test_escalation_chain_order_mild_starts_at_level1(self):
+        """mild 从 Level 1 开始。"""
+        from backend.graph.strategies.heal.algorithm import AlgorithmHealStrategy
+        from backend.graph.strategies.heal.diagnose import MeshDiagnosis
+
+        strategy = AlgorithmHealStrategy()
+        good_mesh = trimesh.primitives.Box().to_mesh()
+
+        # Level 1 succeeds → Level 2/3 should NOT be called
+        l2_called = False
+
+        def track_l2(mesh):
+            nonlocal l2_called
+            l2_called = True
+
+        with patch.object(strategy, "_level1_trimesh", return_value=good_mesh):
+            with patch.object(strategy, "_level2_pymeshfix", side_effect=track_l2):
+                strategy._escalate(
+                    good_mesh,
+                    MeshDiagnosis(level="mild", issues=["inconsistent orientation"]),
+                )
+        assert not l2_called, "Level 2 should NOT be called when Level 1 succeeds"
 ```
 
 **Step 2: 运行测试**
@@ -842,10 +898,11 @@ class NeuralHealStrategy(NeuralStrategy):
 
     async def execute(self, ctx: Any) -> None:
         # Bridge upstream contract: asset first, fallback to data
-        raw_asset = ctx.get_asset("raw_mesh")
-        if raw_asset is not None:
+        # Note: AssetRegistry.get() raises KeyError when key not found.
+        try:
+            raw_asset = ctx.get_asset("raw_mesh")
             mesh_path = raw_asset.path
-        else:
+        except KeyError:
             mesh_path = ctx.get_data("raw_mesh_path")
             if mesh_path is None:
                 raise ValueError("No raw mesh found in assets or data")
@@ -924,6 +981,17 @@ class TestMeshHealerConfig:
         with pytest.raises(ValidationError):
             MeshHealerConfig(
                 strategy="neural",
+                neural_enabled=True,
+                neural_endpoint=None,
+            )
+
+    def test_auto_strategy_with_neural_enabled_requires_endpoint(self):
+        from backend.graph.configs.mesh_healer import MeshHealerConfig
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            MeshHealerConfig(
+                strategy="auto",
                 neural_enabled=True,
                 neural_endpoint=None,
             )
@@ -1354,6 +1422,56 @@ class TestFallbackIntegration:
         }
         result = await wrapped(state)
         assert not neural_called
+
+    @pytest.mark.asyncio
+    async def test_auto_neural_disabled_algorithm_fails_hard_error(self):
+        """auto 模式 + neural disabled + algorithm 失败 → 硬错误，trace 只含 algorithm。"""
+        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.descriptor import NodeDescriptor, NodeStrategy
+
+        class FailAlgorithm(NodeStrategy):
+            async def execute(self, ctx):
+                raise RuntimeError("all levels exhausted")
+
+        class NeuralDisabled(NodeStrategy):
+            def check_available(self) -> bool:
+                return False  # neural disabled
+
+            async def execute(self, ctx):
+                raise AssertionError("should never be called")
+
+        desc = NodeDescriptor(
+            name="test_hard_fail",
+            display_name="Hard Fail Test",
+            fn=lambda ctx: None,
+            strategies={
+                "algorithm": FailAlgorithm,
+                "neural": NeuralDisabled,
+            },
+            default_strategy="algorithm",
+            fallback_chain=["algorithm", "neural"],
+        )
+
+        async def fallback_node(ctx):
+            await ctx.execute_with_fallback()
+
+        desc.fn = fallback_node
+        builder = PipelineBuilder()
+        wrapped = builder._wrap_node(desc)
+
+        state = {
+            "job_id": "j1", "input_type": "organic",
+            "assets": {}, "data": {},
+            "pipeline_config": {"test_hard_fail": {"strategy": "auto"}},
+            "node_trace": [],
+        }
+
+        # Should propagate as error — all strategies exhausted
+        result = await wrapped(state)
+        traces = result.get("node_trace", [])
+        assert len(traces) == 1
+        entry = traces[0]
+        assert entry.get("error") is not None
 ```
 
 **Step 2: 运行测试**
