@@ -162,7 +162,10 @@ async def generate_organic_mesh_node(state: CadJobState) -> dict[str, Any]:
         elif _settings.hunyuan3d_api_key:
             provider = HunyuanProvider(api_key=_settings.hunyuan3d_api_key, output_dir=_output_dir)
         else:
-            provider = TripoProvider(api_key=_settings.tripo3d_api_key, output_dir=_output_dir)
+            raise RuntimeError(
+                "No mesh generation API key configured. "
+                "Set tripo3d_api_key or hunyuan3d_api_key in settings."
+            )
 
     # Bridge sync on_progress callback to dispatch keepalive SSE events.
     # provider.generate() may run sync loops internally; use sync dispatch.

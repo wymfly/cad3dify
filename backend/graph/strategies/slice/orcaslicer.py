@@ -99,7 +99,10 @@ class OrcaSlicerStrategy(NodeStrategy):
             )
         except asyncio.TimeoutError:
             proc.kill()
-            await proc.wait()  # Reap child to prevent zombie
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                pass  # Best-effort reap; OS will clean up
             raise RuntimeError(
                 f"OrcaSlicer timed out after {config.timeout}s"
             )

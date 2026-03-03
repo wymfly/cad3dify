@@ -174,13 +174,17 @@ class Manifold3DStrategy(NodeStrategy):
         resolution preserves more detail but is slower.
         """
         try:
+            if resolution <= 0:
+                logger.warning("Invalid voxel resolution %d, returning original mesh", resolution)
+                return mesh
+
             # Compute voxel pitch from resolution and mesh extent
             max_extent = float(max(mesh.bounding_box.extents))
             if max_extent < 1e-10:
                 return mesh  # degenerate mesh
             pitch = max_extent / resolution
 
-            voxelized = mesh.voxelized(pitch=pitch)
+            voxelized = mesh.voxelized(pitch=pitch).fill()
             repaired = voxelized.marching_cubes
 
             if len(repaired.vertices) == 0:

@@ -102,9 +102,14 @@ class TestGenerateOrganicMeshNode:
         mock_provider = AsyncMock()
         mock_provider.generate = AsyncMock(return_value=Path("/tmp/test.glb"))
 
+        mock_settings = MagicMock()
+        mock_settings.tripo3d_api_key = "test-key"
+        mock_settings.hunyuan3d_api_key = None
+
         # AutoProvider has been removed; default "auto" now uses TripoProvider
         with patch("backend.infra.mesh_providers.TripoProvider", return_value=mock_provider), \
-             patch("backend.infra.mesh_providers.HunyuanProvider"):
+             patch("backend.infra.mesh_providers.HunyuanProvider"), \
+             patch("backend.config.Settings", return_value=mock_settings):
             result = await generate_organic_mesh_node(gen_state)
 
         assert result["raw_mesh_path"] == "/tmp/test.glb"
@@ -125,10 +130,14 @@ class TestGenerateOrganicMeshNode:
     async def test_provider_failure(self, gen_state):
         mock_provider = AsyncMock()
         mock_provider.generate = AsyncMock(side_effect=RuntimeError("API error"))
+        mock_settings = MagicMock()
+        mock_settings.tripo3d_api_key = "test-key"
+        mock_settings.hunyuan3d_api_key = None
 
         # AutoProvider has been removed; default "auto" now uses TripoProvider
         with patch("backend.infra.mesh_providers.TripoProvider", return_value=mock_provider), \
-             patch("backend.infra.mesh_providers.HunyuanProvider"):
+             patch("backend.infra.mesh_providers.HunyuanProvider"), \
+             patch("backend.config.Settings", return_value=mock_settings):
             result = await generate_organic_mesh_node(gen_state)
 
         assert result["status"] == "failed"
