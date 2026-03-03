@@ -128,7 +128,7 @@ async def generate_organic_mesh_node(state: CadJobState) -> dict[str, Any]:
         logger.info("Mesh already exists at %s, skipping generation", raw_mesh)
         return {"_reasoning": {"skip": "idempotent, mesh already exists"}}
 
-    from backend.infra.mesh_providers import AutoProvider, HunyuanProvider, TripoProvider
+    from backend.infra.mesh_providers import HunyuanProvider, TripoProvider
     from backend.models.organic import OrganicSpec
 
     provider_name = state.get("organic_provider") or "auto"
@@ -154,10 +154,9 @@ async def generate_organic_mesh_node(state: CadJobState) -> dict[str, Any]:
     elif provider_name == "hunyuan3d":
         provider = HunyuanProvider(api_key=_settings.hunyuan3d_api_key, output_dir=_output_dir)
     else:
-        provider = AutoProvider(
-            tripo=TripoProvider(api_key=_settings.tripo3d_api_key, output_dir=_output_dir),
-            hunyuan=HunyuanProvider(api_key=_settings.hunyuan3d_api_key, output_dir=_output_dir),
-        )
+        # Default to Tripo3D (AutoProvider has been removed;
+        # new pipeline uses strategy-based fallback in generate_raw_mesh)
+        provider = TripoProvider(api_key=_settings.tripo3d_api_key, output_dir=_output_dir)
 
     # Bridge sync on_progress callback to dispatch keepalive SSE events.
     # provider.generate() may run sync loops internally; use sync dispatch.
@@ -218,7 +217,19 @@ async def _load_reference_image(file_id: str) -> bytes | None:
 
 @timed_node("postprocess_organic")
 async def postprocess_organic_node(state: CadJobState) -> dict[str, Any]:
-    """Run full post-processing pipeline via asyncio.to_thread for CPU-bound ops."""
+    """Run full post-processing pipeline via asyncio.to_thread for CPU-bound ops.
+
+    .. deprecated::
+        Use the new pipeline nodes (mesh_healer, mesh_scale, boolean_assemble,
+        slice_to_gcode) instead.
+    """
+    import warnings as _warnings_mod
+    _warnings_mod.warn(
+        "postprocess_organic_node is deprecated, use new pipeline nodes "
+        "(mesh_healer, mesh_scale, boolean_assemble, slice_to_gcode)",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     job_id = state["job_id"]
     raw_mesh_path = state.get("raw_mesh_path")
     if not raw_mesh_path:

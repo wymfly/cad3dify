@@ -102,8 +102,8 @@ class TestGenerateOrganicMeshNode:
         mock_provider = AsyncMock()
         mock_provider.generate = AsyncMock(return_value=Path("/tmp/test.glb"))
 
-        with patch("backend.infra.mesh_providers.AutoProvider", return_value=mock_provider), \
-             patch("backend.infra.mesh_providers.TripoProvider"), \
+        # AutoProvider has been removed; default "auto" now uses TripoProvider
+        with patch("backend.infra.mesh_providers.TripoProvider", return_value=mock_provider), \
              patch("backend.infra.mesh_providers.HunyuanProvider"):
             result = await generate_organic_mesh_node(gen_state)
 
@@ -126,8 +126,8 @@ class TestGenerateOrganicMeshNode:
         mock_provider = AsyncMock()
         mock_provider.generate = AsyncMock(side_effect=RuntimeError("API error"))
 
-        with patch("backend.infra.mesh_providers.AutoProvider", return_value=mock_provider), \
-             patch("backend.infra.mesh_providers.TripoProvider"), \
+        # AutoProvider has been removed; default "auto" now uses TripoProvider
+        with patch("backend.infra.mesh_providers.TripoProvider", return_value=mock_provider), \
              patch("backend.infra.mesh_providers.HunyuanProvider"):
             result = await generate_organic_mesh_node(gen_state)
 

@@ -54,12 +54,13 @@ class TestBuilderSwitch:
     """Verify USE_NEW_BUILDER env var correctly routes to the right builder."""
 
     # Core nodes present in both builders (legacy hand-coded + new @register_node).
+    # Note: generate_organic_mesh is legacy-only (not @register_node).
+    #       boolean_assemble, generate_raw_mesh, slice_to_gcode are new-builder-only.
     CORE_NODES = {
         "create_job",
         "analyze_intent", "analyze_vision", "analyze_organic",
         "confirm_with_user",
         "generate_step_text", "generate_step_drawing",
-        "generate_organic_mesh",
         "convert_preview", "check_printability",
         "finalize",
     }

@@ -187,86 +187,9 @@ class TestHunyuanProvider:
 
 
 # ---------------------------------------------------------------------------
-# AutoProvider tests
+# AutoProvider tests (REMOVED)
 # ---------------------------------------------------------------------------
-
-class TestAutoProvider:
-    async def test_auto_uses_tripo_first(self, tmp_path: Path) -> None:
-        from backend.infra.mesh_providers.auto import AutoProvider
-        from backend.infra.mesh_providers.base import MeshProvider
-
-        mock_tripo = AsyncMock(spec=MeshProvider)
-        mock_tripo.generate = AsyncMock(return_value=tmp_path / "model.glb")
-        mock_tripo.check_health = AsyncMock(return_value=True)
-
-        mock_hunyuan = AsyncMock(spec=MeshProvider)
-        mock_hunyuan.generate = AsyncMock(return_value=tmp_path / "model2.glb")
-        mock_hunyuan.check_health = AsyncMock(return_value=True)
-
-        provider = AutoProvider(tripo=mock_tripo, hunyuan=mock_hunyuan)
-        result = await provider.generate(_make_spec())
-
-        mock_tripo.generate.assert_awaited_once()
-        mock_hunyuan.generate.assert_not_awaited()
-        assert result == tmp_path / "model.glb"
-
-    async def test_auto_fallback_to_hunyuan(self, tmp_path: Path) -> None:
-        from backend.infra.mesh_providers.auto import AutoProvider
-        from backend.infra.mesh_providers.base import MeshProvider
-
-        mock_tripo = AsyncMock(spec=MeshProvider)
-        mock_tripo.generate = AsyncMock(side_effect=RuntimeError("Tripo failed"))
-        mock_tripo.check_health = AsyncMock(return_value=True)
-
-        mock_hunyuan = AsyncMock(spec=MeshProvider)
-        mock_hunyuan.generate = AsyncMock(return_value=tmp_path / "fallback.glb")
-        mock_hunyuan.check_health = AsyncMock(return_value=True)
-
-        provider = AutoProvider(tripo=mock_tripo, hunyuan=mock_hunyuan)
-        result = await provider.generate(_make_spec())
-
-        mock_tripo.generate.assert_awaited_once()
-        mock_hunyuan.generate.assert_awaited_once()
-        assert result == tmp_path / "fallback.glb"
-
-    async def test_auto_all_fail_raises(self, tmp_path: Path) -> None:
-        from backend.infra.mesh_providers.auto import AutoProvider
-        from backend.infra.mesh_providers.base import MeshProvider
-
-        mock_tripo = AsyncMock(spec=MeshProvider)
-        mock_tripo.generate = AsyncMock(side_effect=RuntimeError("Tripo fail"))
-        mock_tripo.check_health = AsyncMock(return_value=False)
-
-        mock_hunyuan = AsyncMock(spec=MeshProvider)
-        mock_hunyuan.generate = AsyncMock(side_effect=RuntimeError("Hunyuan fail"))
-        mock_hunyuan.check_health = AsyncMock(return_value=False)
-
-        provider = AutoProvider(tripo=mock_tripo, hunyuan=mock_hunyuan)
-        with pytest.raises(RuntimeError, match="All providers failed"):
-            await provider.generate(_make_spec())
-
-    async def test_auto_check_health_either_healthy(self, tmp_path: Path) -> None:
-        from backend.infra.mesh_providers.auto import AutoProvider
-        from backend.infra.mesh_providers.base import MeshProvider
-
-        mock_tripo = AsyncMock(spec=MeshProvider)
-        mock_tripo.check_health = AsyncMock(return_value=False)
-
-        mock_hunyuan = AsyncMock(spec=MeshProvider)
-        mock_hunyuan.check_health = AsyncMock(return_value=True)
-
-        provider = AutoProvider(tripo=mock_tripo, hunyuan=mock_hunyuan)
-        assert await provider.check_health() is True
-
-    async def test_auto_check_health_none_healthy(self, tmp_path: Path) -> None:
-        from backend.infra.mesh_providers.auto import AutoProvider
-        from backend.infra.mesh_providers.base import MeshProvider
-
-        mock_tripo = AsyncMock(spec=MeshProvider)
-        mock_tripo.check_health = AsyncMock(return_value=False)
-
-        mock_hunyuan = AsyncMock(spec=MeshProvider)
-        mock_hunyuan.check_health = AsyncMock(return_value=False)
-
-        provider = AutoProvider(tripo=mock_tripo, hunyuan=mock_hunyuan)
-        assert await provider.check_health() is False
+# AutoProvider was removed in Phase 2 Task 7.
+# Fallback logic is now handled by strategy-based dispatch in
+# generate_raw_mesh node (see backend.graph.nodes.generate_raw_mesh).
+# See tests/test_phase2_integration.py for the replacement tests.

@@ -14,6 +14,64 @@ from backend.models.job import create_job, update_job
 logger = logging.getLogger(__name__)
 
 
+def _merge_asset_results(
+    result_dict: dict[str, Any],
+    assets: dict[str, Any],
+    state: dict[str, Any],
+) -> None:
+    """Merge new-architecture asset registry data into the result dict.
+
+    Reads from the ``assets`` dict (serialized AssetRegistry entries)
+    to populate model_url, stl_url, gcode_url, mesh_stats, etc.
+    Falls back to state-level fields when assets lack certain data.
+    """
+    # Best mesh for model_url: final_mesh > scaled_mesh > watertight_mesh > raw_mesh
+    model_url = None
+    for key in ("final_mesh", "scaled_mesh", "watertight_mesh", "raw_mesh"):
+        asset = assets.get(key)
+        if asset:
+            path = asset.get("path", "") if isinstance(asset, dict) else ""
+            if path:
+                model_url = path
+                break
+    result_dict["model_url"] = model_url
+
+    # STL URL: check for explicit stl asset or derive from final_mesh
+    stl_asset = assets.get("stl_export")
+    if stl_asset:
+        result_dict["stl_url"] = stl_asset.get("path") if isinstance(stl_asset, dict) else None
+    else:
+        result_dict["stl_url"] = None
+
+    # G-code bundle
+    gcode_asset = assets.get("gcode_bundle")
+    if gcode_asset:
+        result_dict["gcode_url"] = gcode_asset.get("path") if isinstance(gcode_asset, dict) else None
+        metadata = gcode_asset.get("metadata", {}) if isinstance(gcode_asset, dict) else {}
+        if metadata:
+            result_dict["gcode_metadata"] = metadata
+
+    # Mesh stats from data dict or asset metadata
+    data = state.get("data") or {}
+    mesh_stats = data.get("mesh_stats")
+    if not mesh_stats:
+        # Try to get from watertight_mesh or final_mesh metadata
+        for key in ("final_mesh", "watertight_mesh"):
+            asset = assets.get(key)
+            if asset and isinstance(asset, dict):
+                meta = asset.get("metadata", {})
+                if meta:
+                    mesh_stats = meta
+                    break
+    result_dict["mesh_stats"] = mesh_stats
+
+    # Warnings from data dict
+    result_dict["warnings"] = data.get("warnings", [])
+
+    # Printability from state
+    result_dict["printability"] = state.get("printability")
+
+
 async def _safe_dispatch(event_name: str, payload: dict[str, Any]) -> None:
     """Dispatch a custom event, tolerating missing run context or stubs.
 
@@ -122,15 +180,21 @@ async def finalize_node(state: CadJobState) -> dict[str, Any]:
     # Organic input: merge mesh/printability results
     input_type = state.get("input_type", "text")
     if input_type == "organic" and not is_failed:
-        organic_result = state.get("organic_result") or {}
-        result_dict.update({
-            "model_url": organic_result.get("model_url"),
-            "stl_url": organic_result.get("stl_url"),
-            "threemf_url": organic_result.get("threemf_url"),
-            "mesh_stats": organic_result.get("mesh_stats"),
-            "warnings": organic_result.get("warnings", []),
-            "printability": organic_result.get("printability"),
-        })
+        # New architecture: read from AssetRegistry (assets dict in state)
+        assets = state.get("assets") or {}
+        if assets and any(k in assets for k in ("raw_mesh", "watertight_mesh", "final_mesh", "gcode_bundle")):
+            _merge_asset_results(result_dict, assets, state)
+        else:
+            # Legacy fallback: read from organic_result dict
+            organic_result = state.get("organic_result") or {}
+            result_dict.update({
+                "model_url": organic_result.get("model_url"),
+                "stl_url": organic_result.get("stl_url"),
+                "threemf_url": organic_result.get("threemf_url"),
+                "mesh_stats": organic_result.get("mesh_stats"),
+                "warnings": organic_result.get("warnings", []),
+                "printability": organic_result.get("printability"),
+            })
 
     if state.get("recommendations"):
         result_dict["recommendations"] = state["recommendations"]
@@ -152,18 +216,16 @@ async def finalize_node(state: CadJobState) -> dict[str, Any]:
         payload["error"] = state.get("error")
         payload["failure_reason"] = state.get("failure_reason")
     else:
-        payload["model_url"] = state.get("model_url")
+        payload["model_url"] = result_dict.get("model_url") or state.get("model_url")
         payload["step_path"] = state.get("step_path")
-        payload["printability"] = state.get("printability")
+        payload["printability"] = result_dict.get("printability") or state.get("printability")
         payload["recommendations"] = state.get("recommendations")
         if input_type == "organic":
-            organic_result = state.get("organic_result") or {}
-            payload.update({
-                "stl_url": organic_result.get("stl_url"),
-                "threemf_url": organic_result.get("threemf_url"),
-                "mesh_stats": organic_result.get("mesh_stats"),
-                "warnings": organic_result.get("warnings", []),
-            })
+            # Prefer result_dict (populated from AssetRegistry or organic_result)
+            payload["stl_url"] = result_dict.get("stl_url")
+            payload["mesh_stats"] = result_dict.get("mesh_stats")
+            payload["warnings"] = result_dict.get("warnings", [])
+            payload["gcode_url"] = result_dict.get("gcode_url")
 
     await _safe_dispatch(event_name, payload)
     return {
