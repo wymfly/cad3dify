@@ -91,9 +91,11 @@ class TestBuilderSwitch:
         build_fn = backend.graph.__getattr__("build_graph")
         graph = build_fn()
         node_names = set(graph.nodes.keys())
-        # Stub nodes registered via @register_node in new builder only
-        for stub in ("mesh_healer", "mesh_scale", "boolean_cuts", "export_formats"):
-            assert stub in node_names, f"New builder should include stub node: {stub}"
+        # Nodes registered via @register_node in new builder only
+        # Note: boolean_cuts -> boolean_assemble (Phase 2 Task 3)
+        # Note: export_formats removed (will be re-added in later phase)
+        for stub in ("mesh_healer", "mesh_scale", "boolean_assemble"):
+            assert stub in node_names, f"New builder should include node: {stub}"
 
     def test_legacy_builder_has_postprocess_organic(self, monkeypatch) -> None:
         """Legacy builder has postprocess_organic (uses @timed_node, not @register_node)."""

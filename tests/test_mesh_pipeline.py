@@ -1,7 +1,10 @@
-"""Tests for organic mesh pipeline nodes (mesh_healer, mesh_scale, boolean_cuts, export_formats).
+"""Tests for organic mesh pipeline nodes (mesh_healer, mesh_scale, boolean_assemble).
 
-Validates that all 4 new nodes are properly registered in NodeRegistry
-and that their placeholder implementations work with NodeContext.
+Validates that pipeline nodes are properly registered in NodeRegistry
+and that their implementations work with NodeContext.
+
+Note: boolean_cuts and export_formats stubs have been replaced by
+boolean_assemble (Phase 2 Task 3). export_formats will be re-added later.
 """
 
 from __future__ import annotations
@@ -32,7 +35,7 @@ def _ensure_discovery() -> None:
 
 
 class TestMeshNodeRegistration:
-    """Verify all 4 organic mesh nodes are registered with correct metadata."""
+    """Verify organic mesh nodes are registered with correct metadata."""
 
     def test_mesh_healer_registered(self) -> None:
         desc = registry.get("mesh_healer")
@@ -48,40 +51,29 @@ class TestMeshNodeRegistration:
         assert desc.produces == ["scaled_mesh"]
         assert desc.input_types == ["organic"]
 
-    def test_boolean_cuts_registered(self) -> None:
-        desc = registry.get("boolean_cuts")
-        assert desc.display_name == "布尔运算"
+    def test_boolean_assemble_registered(self) -> None:
+        desc = registry.get("boolean_assemble")
+        assert desc.display_name == "布尔装配"
         assert desc.requires == ["scaled_mesh"]
         assert desc.produces == ["final_mesh"]
         assert desc.input_types == ["organic"]
 
-    def test_export_formats_registered(self) -> None:
-        desc = registry.get("export_formats")
-        assert desc.display_name == "导出格式"
-        assert desc.requires == [["final_mesh", "scaled_mesh", "watertight_mesh"]]
-        assert desc.produces == ["export_bundle"]
-        assert desc.input_types == ["organic"]
-
     def test_pipeline_chain_produces_matches_requires(self) -> None:
-        """Verify the dependency chain: repair → scale → cuts → export."""
+        """Verify the dependency chain: repair -> scale -> boolean_assemble."""
         repair = registry.get("mesh_healer")
         scale = registry.get("mesh_scale")
-        cuts = registry.get("boolean_cuts")
-        export = registry.get("export_formats")
+        assemble = registry.get("boolean_assemble")
 
         # repair produces what scale requires
         assert "watertight_mesh" in repair.produces
         assert "watertight_mesh" in scale.requires
 
-        # scale produces what cuts requires
+        # scale produces what boolean_assemble requires
         assert "scaled_mesh" in scale.produces
-        assert "scaled_mesh" in cuts.requires
+        assert "scaled_mesh" in assemble.requires
 
-        # cuts produces what export can consume (OR dependency)
-        assert "final_mesh" in cuts.produces
-        or_deps = export.requires[0]
-        assert isinstance(or_deps, list)
-        assert "final_mesh" in or_deps
+        # boolean_assemble produces final_mesh
+        assert "final_mesh" in assemble.produces
 
 
 # ---------------------------------------------------------------------------
@@ -167,57 +159,25 @@ class TestMeshScaleNode:
         assert ctx.get_data("mesh_scale_status") == "skipped_no_input"
 
 
-class TestBooleanCutsNode:
+class TestBooleanAssembleNode:
     @pytest.mark.asyncio
-    async def test_placeholder_with_asset(self) -> None:
-        from backend.graph.nodes.boolean_cuts import boolean_cuts_node
+    async def test_passthrough_without_cuts(self) -> None:
+        """No engineering_cuts -> passthrough scaled_mesh as final_mesh."""
+        from backend.graph.nodes.boolean_assemble import boolean_assemble_node
 
         ctx = _make_ctx(
-            "boolean_cuts",
+            "boolean_assemble",
             assets={"scaled_mesh": "/tmp/scaled.glb"},
         )
-        await boolean_cuts_node(ctx)
+        await boolean_assemble_node(ctx)
         assert ctx.has_asset("final_mesh")
+        assert ctx.get_data("boolean_assemble_status") == "passthrough_no_cuts"
 
     @pytest.mark.asyncio
     async def test_skips_without_asset(self) -> None:
-        from backend.graph.nodes.boolean_cuts import boolean_cuts_node
+        from backend.graph.nodes.boolean_assemble import boolean_assemble_node
 
-        ctx = _make_ctx("boolean_cuts")
-        await boolean_cuts_node(ctx)
+        ctx = _make_ctx("boolean_assemble")
+        await boolean_assemble_node(ctx)
         assert not ctx.has_asset("final_mesh")
-
-
-class TestExportFormatsNode:
-    @pytest.mark.asyncio
-    async def test_placeholder_selects_best_mesh(self) -> None:
-        from backend.graph.nodes.export_formats import export_formats_node
-
-        # Provide final_mesh — should pick it
-        ctx = _make_ctx(
-            "export_formats",
-            assets={"final_mesh": "/tmp/final.glb", "scaled_mesh": "/tmp/scaled.glb"},
-        )
-        await export_formats_node(ctx)
-        assert ctx.has_asset("export_bundle")
-        assert ctx.get_data("export_source_mesh") == "final_mesh"
-
-    @pytest.mark.asyncio
-    async def test_falls_back_to_watertight(self) -> None:
-        from backend.graph.nodes.export_formats import export_formats_node
-
-        ctx = _make_ctx(
-            "export_formats",
-            assets={"watertight_mesh": "/tmp/watertight.glb"},
-        )
-        await export_formats_node(ctx)
-        assert ctx.has_asset("export_bundle")
-        assert ctx.get_data("export_source_mesh") == "watertight_mesh"
-
-    @pytest.mark.asyncio
-    async def test_skips_without_any_mesh(self) -> None:
-        from backend.graph.nodes.export_formats import export_formats_node
-
-        ctx = _make_ctx("export_formats")
-        await export_formats_node(ctx)
-        assert not ctx.has_asset("export_bundle")
+        assert ctx.get_data("boolean_assemble_status") == "skipped_no_input"
