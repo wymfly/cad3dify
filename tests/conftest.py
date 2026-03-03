@@ -50,6 +50,10 @@ _STUB_ROOTS: frozenset[str] = frozenset({
     # Organic engine heavy deps — lazy-loaded in handlers
     "manifold3d",
     "pymeshlab",
+    # Mesh healing tools — C++ extensions may be unavailable in CI
+    "pymeshfix",
+    "meshlib",
+    "meshlib.mrmeshpy",
 })
 
 
