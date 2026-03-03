@@ -82,3 +82,101 @@ class TestValidateRepair:
 
         mesh = trimesh.Trimesh()
         assert validate_repair(mesh) is False
+
+
+from unittest.mock import patch, MagicMock, AsyncMock
+
+
+class TestAlgorithmHealStrategy:
+    """AlgorithmHealStrategy 升级链测试。"""
+
+    def _make_open_mesh(self) -> trimesh.Trimesh:
+        box = trimesh.primitives.Box().to_mesh()
+        return trimesh.Trimesh(vertices=box.vertices, faces=box.faces[:-1])
+
+    def _make_mock_ctx(self, mesh: trimesh.Trimesh, *, use_data_path: bool = False) -> MagicMock:
+        """创建 mock NodeContext。
+
+        Args:
+            use_data_path: If True, simulate upstream contract where raw_mesh
+                is in state data (raw_mesh_path) instead of asset registry.
+        """
+        import tempfile, os
+        tmp = tempfile.NamedTemporaryFile(suffix=".glb", delete=False)
+        mesh.export(tmp.name)
+        tmp.close()
+
+        ctx = MagicMock()
+        if use_data_path:
+            # Simulate upstream: AssetRegistry.get() raises KeyError,
+            # path is in state data dict instead.
+            ctx.get_asset.side_effect = KeyError("raw_mesh")
+            ctx.get_data.return_value = tmp.name
+        else:
+            ctx.get_asset.return_value = MagicMock(path=tmp.name)
+            ctx.get_data.return_value = None
+        ctx.put_asset = MagicMock()
+        ctx.put_data = MagicMock()
+        ctx.dispatch_progress = AsyncMock()
+        ctx.job_id = "test-job"
+        ctx.node_name = "mesh_healer"
+        ctx.config = MagicMock()
+        ctx.config.voxel_resolution = 128
+        ctx.config.retopo_threshold = 100000
+        return ctx
+
+    @pytest.mark.asyncio
+    async def test_clean_mesh_passes_through(self):
+        from backend.graph.strategies.heal.algorithm import AlgorithmHealStrategy
+
+        mesh = trimesh.primitives.Box().to_mesh()
+        ctx = self._make_mock_ctx(mesh)
+        strategy = AlgorithmHealStrategy()
+        await strategy.execute(ctx)
+        # Should have called put_asset with watertight_mesh
+        ctx.put_asset.assert_called_once()
+        call_args = ctx.put_asset.call_args
+        assert call_args[0][0] == "watertight_mesh"
+
+    @pytest.mark.asyncio
+    async def test_reads_from_data_path_when_no_asset(self):
+        """上游写 raw_mesh_path 到 data dict -> strategy 通过桥接读取。"""
+        from backend.graph.strategies.heal.algorithm import AlgorithmHealStrategy
+
+        mesh = trimesh.primitives.Box().to_mesh()
+        ctx = self._make_mock_ctx(mesh, use_data_path=True)
+        strategy = AlgorithmHealStrategy()
+        await strategy.execute(ctx)
+        ctx.put_asset.assert_called_once()
+        ctx.get_data.assert_called_with("raw_mesh_path")
+
+    @pytest.mark.asyncio
+    async def test_open_mesh_gets_repaired(self):
+        """moderate 级 open mesh — mock level2 用 trimesh 修复替代（pymeshfix 不可用）。"""
+        from backend.graph.strategies.heal.algorithm import AlgorithmHealStrategy
+
+        def _trimesh_fill(mesh_in: trimesh.Trimesh) -> trimesh.Trimesh:
+            """使用 trimesh 内置修复代替 pymeshfix。"""
+            m = mesh_in.copy()
+            trimesh.repair.fix_normals(m)
+            trimesh.repair.fix_winding(m)
+            trimesh.repair.fill_holes(m)
+            return m
+
+        mesh = self._make_open_mesh()
+        ctx = self._make_mock_ctx(mesh)
+        strategy = AlgorithmHealStrategy()
+        # 直接替换实例方法，避免 MagicMock 的 __name__ 问题
+        strategy._level2_pymeshfix = _trimesh_fill
+        await strategy.execute(ctx)
+        ctx.put_asset.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_dispatches_progress_events(self):
+        from backend.graph.strategies.heal.algorithm import AlgorithmHealStrategy
+
+        mesh = trimesh.primitives.Box().to_mesh()
+        ctx = self._make_mock_ctx(mesh)
+        strategy = AlgorithmHealStrategy()
+        await strategy.execute(ctx)
+        assert ctx.dispatch_progress.await_count >= 2  # 至少: diagnose + repair
