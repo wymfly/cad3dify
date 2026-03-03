@@ -18,8 +18,8 @@
 - [ ] 2.2 实现 `static_diagnose` 节点：从 `drawing_spec: dict` 还原 `DrawingSpec(**state["drawing_spec"])` 后调用 `validate_code_params()` + `validate_bounding_box()` + 可选 `compare_topology()`（通过 `config.get("configurable", {}).get("pipeline_config", PipelineConfig()).topology_check` 控制），结果写入 `static_notes`
 - [ ] 2.3 实现 `render_for_compare` 节点：渲染 STEP → PNG（支持多视角降级到单视角，通过 `pipeline_config.multi_view_render` 控制），更新 `state["rendered_image_path"]`
 - [ ] 2.4 实现 `vl_compare` 节点：调用 `build_compare_chain(structured=pipeline_config.structured_feedback)` 进行 VL 对比，将对比结果写入 `state["comparison_result"]`，解析 verdict（pass/fail），派发 `job.refining` SSE 事件
-- [ ] 2.5 实现 `coder_fix` 节点：调用 `build_fix_chain()` 修复代码，合并 `state["comparison_result"]` + `static_notes` 作为 fix_instructions，派发 `job.refining` SSE 事件
-- [ ] 2.6 实现 `re_execute` 节点：先快照当前 `code` → `prev_code`、`step_path` → `prev_step_path`，再递增 `round += 1`，然后沙箱执行修复后的代码（`SafeExecutor`），评分后集成 `RollbackTracker` 基于 `prev_score` 检测分数退化（退化时从 `prev_code`/`prev_step_path` 恢复），更新 `prev_score`
+- [ ] 2.5 实现 `coder_fix` 节点：**先**快照当前 `code` → `prev_code`、`step_path` → `prev_step_path`（确保 snapshot 在修改前），**再**调用 `build_fix_chain()` 修复代码（修改 `state["code"]`），合并 `state["comparison_result"]` + `static_notes` 作为 fix_instructions，派发 `job.refining` SSE 事件
+- [ ] 2.6 实现 `re_execute` 节点：沙箱执行修复后的代码（`SafeExecutor`），评分后集成 `RollbackTracker` 基于 `prev_score` 检测分数退化（退化时从 `prev_code`/`prev_step_path` 恢复到修改前版本），更新 `prev_score`，最后递增 `round += 1`
 - [ ] 2.7 实现 `build_refiner_subgraph()`: 组装 `static_diagnose → render_for_compare → vl_compare → route_verdict → [pass: END, fail+round<max: coder_fix → re_execute → render_for_compare (循环), fail+round>=max: END]` 子图拓扑。注意循环中包含 re-render 步骤
 - [ ] 2.8 为子图编写集成测试：mock 所有 LLM chain，验证 1 轮 PASS 退出、3 轮 max_rounds 退出、rollback 场景、`comparison_result` 在 coder_fix 中可用
 - [ ] 2.9 运行 refiner 子图测试并提交：`uv run pytest tests/test_refiner_subgraph.py -v`

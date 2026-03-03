@@ -85,15 +85,20 @@ The system SHALL implement a `static_diagnose` node within the refiner subgraph 
 
 The system SHALL integrate `RollbackTracker` within the refiner subgraph to detect score degradation after each fix round, using `prev_score` in RefinerState.
 
-#### Scenario: re_execute node increments round and snapshots previous state
-- **WHEN** `re_execute` node begins execution
-- **THEN** it SHALL snapshot `state["code"]` → `prev_code` and `state["step_path"]` → `prev_step_path` before executing new code
-- **AND** it SHALL increment `round += 1` after successful execution
-- **AND** it SHALL score the new STEP via `_score_geometry()` and update `prev_score`
+#### Scenario: coder_fix snapshots current state before modifying code
+- **WHEN** `coder_fix` node begins execution
+- **THEN** it SHALL snapshot `state["code"]` → `prev_code` and `state["step_path"]` → `prev_step_path` **before** writing new fixed code to `state["code"]`
+- **NOTE** This ensures `prev_code`/`prev_step_path` always point to the last known-good version (pre-fix), not the new candidate
 
-#### Scenario: Code fix degrades geometry score — rollback from snapshot
-- **WHEN** `re_execute` node completes and the new geometry score is lower than `state["prev_score"]`
-- **THEN** the subgraph SHALL restore `state["code"]` from `prev_code` and `state["step_path"]` from `prev_step_path`
+#### Scenario: re_execute node executes new code and increments round
+- **WHEN** `re_execute` node runs after `coder_fix`
+- **THEN** it SHALL execute the new `state["code"]` via `SafeExecutor`
+- **AND** it SHALL score the new STEP via `_score_geometry()` and update `prev_score`
+- **AND** it SHALL increment `round += 1` after execution completes
+
+#### Scenario: Code fix degrades geometry score — rollback from coder_fix snapshot
+- **WHEN** `re_execute` node completes and the new geometry score is lower than the prior `prev_score`
+- **THEN** the subgraph SHALL restore `state["code"]` from `prev_code` and `state["step_path"]` from `prev_step_path` (the pre-fix known-good version)
 - **AND** dispatch `job.refining` SSE event with `{"round": N, "status": "rollback"}`
 - **AND** re-execute the rolled-back code to ensure the STEP file is consistent
 

@@ -109,7 +109,7 @@ static_diagnose → render_for_compare → vl_compare → route_verdict
   └─ verdict="fail" + round >= max_rounds → END (verdict="max_rounds_reached")
 ```
 
-**round 递增与 rollback 快照：** `re_execute` 节点在执行新代码前，先快照当前代码和 STEP 路径到 `prev_code`/`prev_step_path`，然后递增 `round += 1`，再执行。如果 `RollbackTracker` 检测到分数退化，从 `prev_code`/`prev_step_path` 恢复。
+**rollback 快照与 round 递增：** `coder_fix` 节点在**修改 `state["code"]` 之前**，先快照当前已验证的代码和 STEP 路径到 `prev_code`/`prev_step_path`（这是上一轮或初始的已知可运行代码）。`re_execute` 节点执行新代码并评分后递增 `round += 1`。如果 `RollbackTracker` 检测到分数退化，从 `prev_code`/`prev_step_path` 恢复到修改前的版本。
 
 **状态映射函数：**
 ```python
@@ -184,7 +184,7 @@ result = validate_code_params(state["code"], spec)
 
 ### 补充决策：PipelineConfig 通过 LangGraph configurable 注入子图
 
-**决策：** 子图和节点通过 `RunnableConfig["configurable"]` 接收 `PipelineConfig` 参数（如 `rollback_on_degrade`、`structured_feedback`、`topology_check`、`multi_view_render`），而非在 `RefinerState` 中携带配置字段。
+**决策：** 子图和节点通过 `config.get("configurable", {}).get("pipeline_config", PipelineConfig())` 安全获取 `PipelineConfig` 参数（如 `rollback_on_degrade`、`structured_feedback`、`topology_check`、`multi_view_render`），而非在 `RefinerState` 中携带配置字段。
 
 **理由：**
 - 配置是不可变的运行时参数，不属于状态流转数据
