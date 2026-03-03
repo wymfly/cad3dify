@@ -217,11 +217,13 @@ def diagnose(mesh: trimesh.Trimesh) -> MeshDiagnosis:
 
     is_wt = mesh.is_watertight
 
-    # Check face orientation consistency via euler_number
-    # A closed orientable surface has euler_number == 2
+    # Check face orientation consistency
+    # Note: euler_number == 2 only holds for genus-0 surfaces (sphere-like).
+    # For genus > 0 (e.g., torus: euler = 0), use trimesh's built-in
+    # broken faces check instead.
     try:
-        euler = mesh.euler_number
-        oriented = euler == 2
+        broken = mesh.faces[trimesh.repair.broken_faces(mesh)]
+        oriented = len(broken) == 0
     except Exception:
         oriented = False
 
@@ -320,15 +322,26 @@ class TestAlgorithmHealStrategy:
         box = trimesh.primitives.Box().to_mesh()
         return trimesh.Trimesh(vertices=box.vertices, faces=box.faces[:-1])
 
-    def _make_mock_ctx(self, mesh: trimesh.Trimesh) -> MagicMock:
-        """创建 mock NodeContext。"""
+    def _make_mock_ctx(self, mesh: trimesh.Trimesh, *, use_data_path: bool = False) -> MagicMock:
+        """创建 mock NodeContext。
+
+        Args:
+            use_data_path: If True, simulate upstream contract where raw_mesh
+                is in state data (raw_mesh_path) instead of asset registry.
+        """
         import tempfile, os
         tmp = tempfile.NamedTemporaryFile(suffix=".glb", delete=False)
         mesh.export(tmp.name)
         tmp.close()
 
         ctx = MagicMock()
-        ctx.get_asset.return_value = MagicMock(path=tmp.name)
+        if use_data_path:
+            # Simulate upstream: no asset, path in data dict
+            ctx.get_asset.return_value = None
+            ctx.get_data.return_value = tmp.name
+        else:
+            ctx.get_asset.return_value = MagicMock(path=tmp.name)
+            ctx.get_data.return_value = None
         ctx.put_asset = MagicMock()
         ctx.put_data = MagicMock()
         ctx.dispatch_progress = AsyncMock()
@@ -361,6 +374,18 @@ class TestAlgorithmHealStrategy:
         strategy = AlgorithmHealStrategy()
         await strategy.execute(ctx)
         ctx.put_asset.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_reads_from_data_path_when_no_asset(self):
+        """上游写 raw_mesh_path 到 data dict → strategy 通过桥接读取。"""
+        from backend.graph.strategies.heal.algorithm import AlgorithmHealStrategy
+
+        mesh = trimesh.primitives.Box().to_mesh()
+        ctx = self._make_mock_ctx(mesh, use_data_path=True)
+        strategy = AlgorithmHealStrategy()
+        await strategy.execute(ctx)
+        ctx.put_asset.assert_called_once()
+        ctx.get_data.assert_called_with("raw_mesh_path")
 
     @pytest.mark.asyncio
     async def test_dispatches_progress_events(self):
@@ -413,9 +438,17 @@ class AlgorithmHealStrategy(NodeStrategy):
     """Repair mesh via diagnosis-driven tool escalation."""
 
     async def execute(self, ctx: Any) -> None:
-        # 1. Load mesh
+        # 1. Load mesh — bridge upstream contract
+        # Upstream generate_organic_mesh_node writes raw_mesh_path to state
+        # dict (not asset registry), so we try asset first, fallback to data.
         raw_asset = ctx.get_asset("raw_mesh")
-        mesh = trimesh.load(raw_asset.path, force="mesh")
+        if raw_asset is not None:
+            mesh_path = raw_asset.path
+        else:
+            mesh_path = ctx.get_data("raw_mesh_path")
+            if mesh_path is None:
+                raise ValueError("No raw mesh found in assets or data")
+        mesh = trimesh.load(mesh_path, force="mesh")
         if isinstance(mesh, trimesh.Scene):
             meshes = list(mesh.geometry.values())
             mesh = trimesh.util.concatenate(meshes) if meshes else trimesh.Trimesh()
@@ -443,7 +476,12 @@ class AlgorithmHealStrategy(NodeStrategy):
         await ctx.dispatch_progress(4, 4, "修复完成")
 
     def _escalate(self, mesh: trimesh.Trimesh, diag: MeshDiagnosis) -> trimesh.Trimesh:
-        """Run escalation chain starting from diagnosed level."""
+        """Run escalation chain starting from diagnosed level.
+
+        Raises RuntimeError when all levels exhausted — this allows:
+        - Non-auto mode: error propagates to user
+        - Auto mode: execute_with_fallback() catches it and tries neural
+        """
         levels = {
             "mild": [self._level1_trimesh, self._level2_pymeshfix, self._level3_meshlib],
             "moderate": [self._level2_pymeshfix, self._level3_meshlib],
@@ -464,8 +502,10 @@ class AlgorithmHealStrategy(NodeStrategy):
                 logger.warning("Repair %s failed: %s", repair_fn.__name__, exc)
                 continue
 
-        logger.warning("All repair levels exhausted, returning best effort")
-        return mesh
+        raise RuntimeError(
+            f"All algorithm repair levels exhausted for {diag.level} mesh. "
+            f"Issues: {diag.issues}"
+        )
 
     @staticmethod
     def _level1_trimesh(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
@@ -659,6 +699,46 @@ class TestEscalationChain:
                     AlgorithmHealStrategy(), mesh, diag
                 )
                 assert result.is_watertight
+
+    def test_all_levels_exhausted_raises(self):
+        """所有修复级别均失败 → 抛 RuntimeError（非 auto 模式会传播给用户）。"""
+        from backend.graph.strategies.heal.algorithm import AlgorithmHealStrategy
+        from backend.graph.strategies.heal.diagnose import MeshDiagnosis
+
+        box = trimesh.primitives.Box().to_mesh()
+        mesh = trimesh.Trimesh(vertices=box.vertices, faces=box.faces[:-1])
+        diag = MeshDiagnosis(level="moderate", issues=["holes"])
+
+        with patch.object(AlgorithmHealStrategy, "_level2_pymeshfix",
+                          side_effect=RuntimeError("fail")):
+            with patch.object(AlgorithmHealStrategy, "_level3_meshlib",
+                              side_effect=RuntimeError("fail")):
+                with pytest.raises(RuntimeError, match="All algorithm repair levels exhausted"):
+                    AlgorithmHealStrategy()._escalate(mesh, diag)
+
+    def test_escalation_chain_order_matches_severity(self):
+        """severe 直接从 Level 3 开始，mild 从 Level 1 开始。"""
+        from backend.graph.strategies.heal.algorithm import AlgorithmHealStrategy
+        from backend.graph.strategies.heal.diagnose import MeshDiagnosis
+
+        strategy = AlgorithmHealStrategy()
+        call_order = []
+
+        def track(fn_name, original_fn):
+            def wrapper(mesh):
+                call_order.append(fn_name)
+                return original_fn(mesh)
+            return wrapper
+
+        good_mesh = trimesh.primitives.Box().to_mesh()
+
+        # Test severe → starts at level3 directly
+        call_order.clear()
+        with patch.object(strategy, "_level3_meshlib", return_value=good_mesh):
+            strategy._escalate(
+                good_mesh, MeshDiagnosis(level="severe", issues=["self-intersection"])
+            )
+        # Should NOT have called level1 or level2
 ```
 
 **Step 2: 运行测试**
@@ -761,12 +841,19 @@ class NeuralHealStrategy(NeuralStrategy):
             return resp.json()
 
     async def execute(self, ctx: Any) -> None:
+        # Bridge upstream contract: asset first, fallback to data
         raw_asset = ctx.get_asset("raw_mesh")
+        if raw_asset is not None:
+            mesh_path = raw_asset.path
+        else:
+            mesh_path = ctx.get_data("raw_mesh_path")
+            if mesh_path is None:
+                raise ValueError("No raw mesh found in assets or data")
 
         await ctx.dispatch_progress(1, 3, "Neural 修复请求中")
 
         response = await self._post("/v1/repair", {
-            "mesh_uri": raw_asset.path,
+            "mesh_uri": mesh_path,
         })
 
         await ctx.dispatch_progress(2, 3, "Neural 修复完成")
@@ -822,6 +909,24 @@ class TestMeshHealerConfig:
         from backend.graph.configs.neural import NeuralStrategyConfig
 
         assert issubclass(MeshHealerConfig, NeuralStrategyConfig)
+
+    def test_strategy_literal_rejects_invalid(self):
+        from backend.graph.configs.mesh_healer import MeshHealerConfig
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            MeshHealerConfig(strategy="invalid")
+
+    def test_neural_strategy_requires_endpoint(self):
+        from backend.graph.configs.mesh_healer import MeshHealerConfig
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            MeshHealerConfig(
+                strategy="neural",
+                neural_enabled=True,
+                neural_endpoint=None,
+            )
 ```
 
 **Step 2: 实现 MeshHealerConfig**
@@ -829,6 +934,12 @@ class TestMeshHealerConfig:
 `backend/graph/configs/mesh_healer.py`:
 ```python
 """Configuration for mesh_healer node."""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import model_validator
 
 from backend.graph.configs.neural import NeuralStrategyConfig
 
@@ -840,12 +951,23 @@ class MeshHealerConfig(NeuralStrategyConfig):
     from NeuralStrategyConfig.
     """
 
-    strategy: str = "algorithm"
+    strategy: Literal["algorithm", "neural", "auto"] = "algorithm"
     voxel_resolution: int = 128
     retopo_threshold: int = 100000
     retopo_enabled: bool = False
     retopo_endpoint: str | None = None
     retopo_target_faces: int = 50000
+
+    @model_validator(mode="after")
+    def _validate_neural_config(self) -> "MeshHealerConfig":
+        """Ensure neural endpoint is set when strategy requires it."""
+        if self.strategy in ("neural", "auto") and self.neural_enabled:
+            if not self.neural_endpoint:
+                raise ValueError(
+                    "neural_endpoint must be set when strategy is "
+                    f"'{self.strategy}' and neural_enabled=True"
+                )
+        return self
 ```
 
 **Step 3: 运行测试**
@@ -968,6 +1090,8 @@ async def _maybe_retopo(ctx: NodeContext, config: MeshHealerConfig) -> None:
                        len(mesh.faces), config.retopo_threshold)
         return
 
+    await ctx.dispatch_progress(0, 1, f"Retopo: {len(mesh.faces)} → {config.retopo_target_faces} faces")
+
     logger.info("Running retopo: %d faces > threshold %d", len(mesh.faces), config.retopo_threshold)
     import httpx
     async with httpx.AsyncClient(timeout=config.neural_timeout) as client:
@@ -987,6 +1111,8 @@ async def _maybe_retopo(ctx: NodeContext, config: MeshHealerConfig) -> None:
         "obj",
         metadata=result.get("metrics", {}),
     )
+
+    await ctx.dispatch_progress(1, 1, "Retopo 完成")
 ```
 
 **Step 3: 运行测试**
@@ -1004,16 +1130,18 @@ git commit -m "feat(heal): replace mesh_repair stub with mesh_healer dual-channe
 
 ---
 
-### Task 8: [test] 更新 TestBuilderSwitch
+### Task 8: [test] 更新所有 mesh_repair → mesh_healer 引用
 
 **Files:**
-- Modify: `tests/test_graph_builder.py:87-96` (mesh_repair → mesh_healer)
-- Modify: `tests/test_graph_builder.py:114-116` (default builder assertion)
+- Modify: `tests/test_graph_builder.py:87-96,114-116` (mesh_repair → mesh_healer)
+- Modify: `tests/test_mesh_pipeline.py` (mesh_repair → mesh_healer，6+ 处引用)
+- Modify: `tests/test_resolver.py:292,310,319` (mesh_repair → mesh_healer，3 处引用)
 
-**Step 1: 更新 stub 节点列表**
+> **Codex P1 finding:** 原计划仅更新 test_graph_builder.py，遗漏了 test_mesh_pipeline.py（6+ 引用）和 test_resolver.py（3 引用）。全部 mesh_repair 引用必须更新为 mesh_healer，否则测试回归。
 
-在 `test_graph_builder.py` 的 `test_new_builder_has_stub_nodes` 方法中：
+**Step 1: 更新 test_graph_builder.py**
 
+在 `test_new_builder_has_stub_nodes` 方法中：
 ```python
 # 旧：
 for stub in ("mesh_repair", "mesh_scale", "boolean_cuts", "export_formats"):
@@ -1029,16 +1157,46 @@ assert "mesh_repair" in node_names, "Default should use new builder"
 assert "mesh_healer" in node_names, "Default should use new builder"
 ```
 
-**Step 2: 运行 builder 测试**
+**Step 2: 更新 test_mesh_pipeline.py**
 
-Run: `uv run pytest tests/test_graph_builder.py -v`
+全文替换所有 `mesh_repair` → `mesh_healer`：
+- `from backend.graph.nodes.mesh_repair import mesh_repair_node` → `from backend.graph.nodes.mesh_healer import mesh_healer_node`
+- `registry.get("mesh_repair")` → `registry.get("mesh_healer")`
+- `class TestMeshRepairNode` → `class TestMeshHealerNode`
+- 其他字符串引用同步更新
+
+**Step 3: 更新 test_resolver.py**
+
+```python
+# Line 292:
+# 旧：
+_desc("mesh_repair", requires=["raw_mesh"], produces=["watertight_mesh"], input_types=["organic"])
+# 新：
+_desc("mesh_healer", requires=["raw_mesh"], produces=["watertight_mesh"], input_types=["organic"])
+
+# Line 310:
+# 旧：
+assert "mesh_repair" not in names
+# 新：
+assert "mesh_healer" not in names
+
+# Line 319:
+# 旧：
+assert "mesh_repair" in names
+# 新：
+assert "mesh_healer" in names
+```
+
+**Step 4: 运行全部受影响测试**
+
+Run: `uv run pytest tests/test_graph_builder.py tests/test_mesh_pipeline.py tests/test_resolver.py -v`
 Expected: 所有测试 PASS
 
-**Step 3: Commit**
+**Step 5: Commit**
 
 ```bash
-git add tests/test_graph_builder.py
-git commit -m "test(builder): update TestBuilderSwitch for mesh_repair → mesh_healer rename"
+git add tests/test_graph_builder.py tests/test_mesh_pipeline.py tests/test_resolver.py
+git commit -m "test: rename mesh_repair → mesh_healer across all test files"
 ```
 
 ---
@@ -1148,6 +1306,54 @@ class TestFallbackIntegration:
         fb = traces[0]["fallback"]
         assert fb["fallback_triggered"] is False
         assert fb["strategy_used"] == "algorithm"
+
+    @pytest.mark.asyncio
+    async def test_auto_neural_disabled_only_tries_algorithm(self):
+        """auto 模式 + neural 未配置 → 仅尝试 algorithm，neural 不参与 fallback。"""
+        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.descriptor import NodeDescriptor, NodeStrategy
+
+        neural_called = False
+
+        class SuccessAlgorithm(NodeStrategy):
+            async def execute(self, ctx):
+                ctx.put_data("healed_by", "algorithm")
+
+        class NeuralShouldNotBeCalled(NodeStrategy):
+            def check_available(self) -> bool:
+                return False  # neural disabled
+
+            async def execute(self, ctx):
+                nonlocal neural_called
+                neural_called = True
+
+        desc = NodeDescriptor(
+            name="test_neural_disabled",
+            display_name="Neural Disabled Test",
+            fn=lambda ctx: None,
+            strategies={
+                "algorithm": SuccessAlgorithm,
+                "neural": NeuralShouldNotBeCalled,
+            },
+            default_strategy="algorithm",
+            fallback_chain=["algorithm", "neural"],
+        )
+
+        async def fallback_node(ctx):
+            await ctx.execute_with_fallback()
+
+        desc.fn = fallback_node
+        builder = PipelineBuilder()
+        wrapped = builder._wrap_node(desc)
+
+        state = {
+            "job_id": "j1", "input_type": "organic",
+            "assets": {}, "data": {},
+            "pipeline_config": {"test_neural_disabled": {"strategy": "auto"}},
+            "node_trace": [],
+        }
+        result = await wrapped(state)
+        assert not neural_called
 ```
 
 **Step 2: 运行测试**
