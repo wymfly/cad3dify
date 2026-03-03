@@ -125,20 +125,25 @@ async def _orchestrate_drawing_generation(state: dict, config: dict) -> dict:
             *[chain.ainvoke(modeling_input) for _ in range(pipeline_config.best_of_n)],
             return_exceptions=True,
         )
-        # Phase 2: Execute serial, pick highest scorer
-        best_code, best_score = None, -1.0
-        for raw_code in codes:
+        # Phase 2: Execute each candidate in an isolated temp file, pick highest scorer
+        best_raw, best_score = None, -1.0
+        for i, raw_code in enumerate(codes):
             if isinstance(raw_code, Exception) or raw_code is None:
                 continue
-            candidate_code = Template(raw_code).safe_substitute(output_filename=step_path)
+            tmp_step = tempfile.NamedTemporaryFile(
+                suffix=".step", prefix=f"candidate_{i}_", delete=False,
+            )
+            tmp_step.close()
+            candidate_code = Template(raw_code).safe_substitute(output_filename=tmp_step.name)
             executor = SafeExecutor(timeout_s=60)
             exec_result = executor.execute(candidate_code)
             if exec_result.success:
-                compiled, vol, bbox, topo = _score_geometry(step_path, spec, pipeline_config)
+                compiled, vol, bbox, topo = _score_geometry(tmp_step.name, spec, pipeline_config)
                 sc = float(score_candidate(compiled=compiled, volume_ok=vol, bbox_ok=bbox, topology_ok=topo))
                 if sc > best_score:
-                    best_code, best_score = candidate_code, sc
-        code = best_code
+                    best_raw, best_score = raw_code, sc
+        # Substitute winner with real step_path
+        code = Template(best_raw).safe_substitute(output_filename=step_path) if best_raw else None
     else:
         raw = await chain.ainvoke(modeling_input)
         code = Template(raw).safe_substitute(output_filename=step_path) if raw else None
@@ -153,11 +158,20 @@ async def _orchestrate_drawing_generation(state: dict, config: dict) -> dict:
     # Stage 3.5: Geometry validation (informational)
     validate_step_geometry(step_path)
 
+    # Stage 3.6: Compute initial geometry score as refiner baseline
+    init_compiled, init_vol, init_bbox, init_topo = _score_geometry(
+        step_path, spec, pipeline_config
+    )
+    initial_score = float(score_candidate(
+        compiled=init_compiled, volume_ok=init_vol, bbox_ok=init_bbox, topology_ok=init_topo,
+    ))
+
     # Stage 4: Refiner subgraph
     refiner = build_refiner_subgraph()
     refiner_input = map_job_to_refiner(
         {"generated_code": code, "step_path": step_path, "drawing_spec": spec, "image_path": state.get("image_path", "")},
         config,
+        initial_score=initial_score,
     )
     refiner_result = await refiner.ainvoke(refiner_input, config=config)
     updates = map_refiner_to_job(refiner_result)
@@ -166,8 +180,8 @@ async def _orchestrate_drawing_generation(state: dict, config: dict) -> dict:
     if pipeline_config.cross_section_check:
         try:
             cross_section_analysis(step_path, spec)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Cross-section analysis failed (non-fatal): %s", exc)
 
     return {
         "step_path": step_path,
@@ -223,6 +237,16 @@ async def generate_step_drawing_node(state: CadJobState, config: dict = None) ->
             "failure_reason": reason, "status": "failed",
         })
         return {"error": str(exc), "failure_reason": reason, "status": "failed"}
+
+    # Propagate orchestrator failure
+    if result.get("status") == "failed":
+        error_msg = result.get("error", "Generation failed")
+        reason = result.get("failure_reason", "generation_error")
+        await _safe_dispatch("job.failed", {
+            "job_id": state["job_id"], "error": error_msg,
+            "failure_reason": reason, "status": "failed",
+        })
+        return {"error": error_msg, "failure_reason": reason, "status": "failed"}
 
     # Persist code
     code_text = result.get("generated_code", "")

@@ -125,15 +125,16 @@ class TestOrchestrateDrawingGeneration:
         with patch("backend.graph.nodes.generation.SafeExecutor") as mock_exec_cls:
             mock_exec_cls.return_value.execute.return_value = MagicMock(success=True)
 
-            # Score: a=0.5, b=0.9, c=0.3
+            # Score: a=0.5, b=0.9, c=0.3, then initial_score for refiner baseline
             with patch("backend.graph.nodes.generation._score_geometry") as mock_score:
                 mock_score.side_effect = [
-                    (True, True, False, False),   # a
-                    (True, True, True, True),      # b
-                    (True, False, False, False),   # c
+                    (True, True, False, False),   # candidate a
+                    (True, True, True, True),      # candidate b
+                    (True, False, False, False),   # candidate c
+                    (True, True, True, True),      # initial_score (stage 3.6)
                 ]
                 with patch("backend.graph.nodes.generation.score_candidate") as mock_sc:
-                    mock_sc.side_effect = [0.5, 0.9, 0.3]
+                    mock_sc.side_effect = [0.5, 0.9, 0.3, 0.9]
 
                     mock_refiner = AsyncMock()
                     mock_refiner.ainvoke.return_value = {"code": "code_b", "step_path": step_path}

@@ -61,8 +61,16 @@ class RefinerState(TypedDict, total=False):
 # ---------------------------------------------------------------------------
 
 
-def map_job_to_refiner(state: dict, config: dict) -> RefinerState:
-    """Map parent job state to RefinerState for subgraph entry."""
+def map_job_to_refiner(
+    state: dict, config: dict, *, initial_score: float | None = None
+) -> RefinerState:
+    """Map parent job state to RefinerState for subgraph entry.
+
+    Args:
+        initial_score: Pre-computed geometry score of the initial code.
+            Seeds prev_score so the first refinement round can rollback
+            on degradation.
+    """
     pipeline_config: PipelineConfig = config.get("configurable", {}).get(
         "pipeline_config", PipelineConfig()
     )
@@ -83,9 +91,9 @@ def map_job_to_refiner(state: dict, config: dict) -> RefinerState:
         static_notes=[],
         comparison_result=None,
         rendered_image_path=None,
-        prev_score=None,
-        prev_code=None,
-        prev_step_path=None,
+        prev_score=initial_score,
+        prev_code=state.get("generated_code", state.get("code", "")),
+        prev_step_path=state.get("step_path", ""),
     )
 
 
@@ -315,14 +323,33 @@ def re_execute(state: RefinerState, config: RunnableConfig) -> dict:
 
     # Execute code in sandbox
     executor = SafeExecutor(timeout_s=60)
+    exec_success = False
     try:
         result = executor.execute(code)
-        if not result.success:
+        exec_success = result.success
+        if not exec_success:
             logger.warning("Execution failed: %s", result.stderr[:200])
     except Exception as exc:
         logger.error("SafeExecutor error: %s", exc)
 
-    # Score geometry
+    updates: dict[str, Any] = {}
+    prev_score = state.get("prev_score")
+
+    # If execution failed, rollback immediately — don't score stale geometry
+    if not exec_success:
+        logger.warning("Execution failed, rolling back to previous code")
+        if state.get("prev_code"):
+            updates["code"] = state["prev_code"]
+            updates["step_path"] = state.get("prev_step_path", step_path)
+            try:
+                executor.execute(state["prev_code"])
+            except Exception as exc:
+                logger.error("Rollback re-execution failed: %s", exc)
+        updates["prev_score"] = prev_score  # keep baseline unchanged
+        updates["round"] = state.get("round", 0) + 1
+        return updates
+
+    # Score geometry (only when execution succeeded)
     compiled, volume_ok, bbox_ok, topology_ok = _score_geometry(
         step_path, spec, pipeline_config
     )
@@ -334,10 +361,6 @@ def re_execute(state: RefinerState, config: RunnableConfig) -> dict:
             topology_ok=topology_ok,
         )
     )
-
-    # Rollback check
-    updates: dict[str, Any] = {}
-    prev_score = state.get("prev_score")
 
     if pipeline_config.rollback_on_degrade and prev_score is not None:
         tracker = RollbackTracker()
