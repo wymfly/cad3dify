@@ -76,12 +76,12 @@ class TestInterceptorRegistry:
 
 class TestBuilderIntegration:
     def test_build_graph_with_no_interceptors(self):
-        from backend.graph.builder import build_graph
+        from backend.graph import build_graph
         graph = build_graph()
         assert graph is not None
 
     def test_build_graph_nodes_unchanged(self):
-        from backend.graph.builder import build_graph
+        from backend.graph import build_graph
         graph = build_graph()
         node_names = set(graph.get_graph().nodes.keys())
         expected = {"create_job", "analyze_intent", "analyze_vision", "confirm_with_user",
@@ -91,7 +91,7 @@ class TestBuilderIntegration:
 
 
 class TestInterceptorInNewBuilder:
-    """Interceptor insertion in PipelineBuilder (builder_new.py)."""
+    """Interceptor insertion in PipelineBuilder (builder.py)."""
 
     def _make_resolved(self, edges=None):
         """Helper to create a minimal ResolvedPipeline."""
@@ -132,7 +132,7 @@ class TestInterceptorInNewBuilder:
         )
 
     def test_interceptor_inserted_between_convert_and_check(self):
-        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.builder import PipelineBuilder
         from backend.graph.interceptors import InterceptorRegistry
 
         async def interceptor_fn(state):
@@ -148,7 +148,7 @@ class TestInterceptorInNewBuilder:
         assert "my_interceptor" in graph.nodes
 
     def test_interceptor_chain_order(self):
-        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.builder import PipelineBuilder
         from backend.graph.interceptors import InterceptorRegistry
 
         async def int1(state):
@@ -169,7 +169,7 @@ class TestInterceptorInNewBuilder:
         assert "int2" in graph.nodes
 
     def test_no_interceptors_graph_unchanged(self):
-        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.builder import PipelineBuilder
         from backend.graph.interceptors import InterceptorRegistry
 
         resolved = self._make_resolved()

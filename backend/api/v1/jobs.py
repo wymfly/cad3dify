@@ -258,41 +258,27 @@ async def create_job_endpoint(body: CreateJobRequest, request: Request) -> Event
     else:
         pc = PRESETS["balanced"]
 
-    # Build initial_state — new format when USE_NEW_BUILDER=1
-    import os
+    # Build initial_state
+    from backend.graph.compat import convert_legacy_pipeline_config, is_legacy_format
+    from backend.graph.presets import parse_pipeline_config
 
-    use_new = os.environ.get("USE_NEW_BUILDER", "0") == "1"
-
-    if use_new:
-        from backend.graph.compat import convert_legacy_pipeline_config, is_legacy_format
-        from backend.graph.presets import parse_pipeline_config
-
-        pc_dict = pc.model_dump()
-        if is_legacy_format(pc_dict):
-            new_pc = convert_legacy_pipeline_config(pc_dict)
-        else:
-            new_pc = parse_pipeline_config(dict(pc_dict))
-
-        initial_state: dict[str, Any] = {
-            "job_id": job_id,
-            "input_type": body.input_type,
-            "input_text": input_text,
-            "image_path": None,
-            "pipeline_config": new_pc,
-            "status": "pending",
-            "assets": {},
-            "data": {},
-            "node_trace": [],
-        }
+    pc_dict = pc.model_dump()
+    if is_legacy_format(pc_dict):
+        new_pc = convert_legacy_pipeline_config(pc_dict)
     else:
-        initial_state: dict[str, Any] = {  # type: ignore[no-redef]
-            "job_id": job_id,
-            "input_type": body.input_type,
-            "input_text": input_text,
-            "image_path": None,
-            "pipeline_config": pc.model_dump(),  # consumed by generation nodes in M2
-            "status": "pending",
-        }
+        new_pc = parse_pipeline_config(dict(pc_dict))
+
+    initial_state: dict[str, Any] = {
+        "job_id": job_id,
+        "input_type": body.input_type,
+        "input_text": input_text,
+        "image_path": None,
+        "pipeline_config": new_pc,
+        "status": "pending",
+        "assets": {},
+        "data": {},
+        "node_trace": [],
+    }
 
     if body.parent_job_id:
         initial_state["parent_job_id"] = body.parent_job_id
@@ -344,21 +330,15 @@ async def create_drawing_job(
     cad_graph = request.app.state.cad_graph
     config = {"configurable": {"thread_id": job_id}}
 
-    # Convert pipeline_config for new builder if active
-    import os
+    # Convert pipeline_config
+    from backend.graph.compat import convert_legacy_pipeline_config, is_legacy_format
+    from backend.graph.presets import parse_pipeline_config
 
-    use_new = os.environ.get("USE_NEW_BUILDER", "0") == "1"
-    if use_new:
-        from backend.graph.compat import convert_legacy_pipeline_config, is_legacy_format
-        from backend.graph.presets import parse_pipeline_config
-
-        pc_dict = pc.model_dump()
-        if is_legacy_format(pc_dict):
-            pipeline_cfg = convert_legacy_pipeline_config(pc_dict)
-        else:
-            pipeline_cfg = parse_pipeline_config(dict(pc_dict))
+    pc_dict = pc.model_dump()
+    if is_legacy_format(pc_dict):
+        pipeline_cfg = convert_legacy_pipeline_config(pc_dict)
     else:
-        pipeline_cfg = pc.model_dump()
+        pipeline_cfg = parse_pipeline_config(dict(pc_dict))
 
     initial_state: dict[str, Any] = {
         "job_id": job_id,
@@ -367,11 +347,10 @@ async def create_drawing_job(
         "image_path": image_path,
         "pipeline_config": pipeline_cfg,
         "status": "pending",
+        "assets": {},
+        "data": {},
+        "node_trace": [],
     }
-    if use_new:
-        initial_state["assets"] = {}
-        initial_state["data"] = {}
-        initial_state["node_trace"] = []
 
     async def event_stream() -> AsyncGenerator[dict[str, str], None]:
         async for event in cad_graph.astream_events(initial_state, config=config, version="v2"):
@@ -656,51 +635,22 @@ async def confirm_job(job_id: str, body: ConfirmRequest, request: Request) -> Ev
     cad_graph = request.app.state.cad_graph
     config = {"configurable": {"thread_id": job_id}}
 
-    import os
-
-    use_new = os.environ.get("USE_NEW_BUILDER", "0") == "1"
     is_organic = job.input_type == "organic"
 
-    if use_new:
-        # New builder: wrap confirm data inside data dict for NodeContext
-        resume_data: dict[str, Any] = {
-            "data": {
-                "confirmed_params": body.confirmed_params,
-                "confirmed_spec": body.confirmed_spec,
-                "disclaimer_accepted": body.disclaimer_accepted,
-            },
-        }
-        if is_organic and body.confirmed_spec:
-            spec_overrides = body.confirmed_spec
-            if "quality_mode" in spec_overrides:
-                resume_data["data"]["organic_quality_mode"] = spec_overrides["quality_mode"]
-            if "provider" in spec_overrides:
-                resume_data["data"]["organic_provider"] = spec_overrides["provider"]
-    elif is_organic:
-        # Organic: use confirmed_spec (dict[str, Any]) for string overrides
-        resume_data = {
-            "disclaimer_accepted": body.disclaimer_accepted,
-        }
-        if body.confirmed_spec:
-            spec_overrides = body.confirmed_spec
-            if "quality_mode" in spec_overrides:
-                resume_data["organic_quality_mode"] = spec_overrides["quality_mode"]
-            if "provider" in spec_overrides:
-                resume_data["organic_provider"] = spec_overrides["provider"]
-            if "prompt_en" in spec_overrides:
-                # Merge edited prompt into organic_spec
-                resume_data.setdefault("organic_spec", {})
-                resume_data["organic_spec"]["prompt_en"] = spec_overrides["prompt_en"]
-            if "bounding_box" in spec_overrides:
-                resume_data.setdefault("organic_spec", {})
-                resume_data["organic_spec"]["final_bounding_box"] = spec_overrides["bounding_box"]
-    else:
-        # Text/Drawing: use confirmed_params (dict[str, float]) for Pydantic coercion
-        resume_data = {
+    # Wrap confirm data inside data dict for NodeContext
+    resume_data: dict[str, Any] = {
+        "data": {
             "confirmed_params": body.confirmed_params,
             "confirmed_spec": body.confirmed_spec,
             "disclaimer_accepted": body.disclaimer_accepted,
-        }
+        },
+    }
+    if is_organic and body.confirmed_spec:
+        spec_overrides = body.confirmed_spec
+        if "quality_mode" in spec_overrides:
+            resume_data["data"]["organic_quality_mode"] = spec_overrides["quality_mode"]
+        if "provider" in spec_overrides:
+            resume_data["data"]["organic_provider"] = spec_overrides["provider"]
 
     async def event_stream() -> AsyncGenerator[dict[str, str], None]:
         async for event in cad_graph.astream_events(

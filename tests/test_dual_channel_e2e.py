@@ -148,7 +148,7 @@ class TestDualChannelTraceIntegration:
     @pytest.mark.asyncio
     async def test_trace_contains_fallback_info(self):
         """_wrap_node trace includes fallback_triggered and strategy_used."""
-        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.builder import PipelineBuilder
 
         class FailAlgo(NodeStrategy):
             def __init__(self, config=None):

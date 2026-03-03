@@ -279,7 +279,7 @@ class TestHitlEdgeCases:
         """Even when analysis fails, graph should still interrupt before confirm.
 
         This is by design — the interrupt_before is unconditional.  After resume,
-        the confirm node executes, then route_after_confirm sees status='failed'
+        the confirm node executes, then the router sees status='failed'
         and routes to finalize.
         """
         from backend.graph import get_compiled_graph

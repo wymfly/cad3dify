@@ -1,4 +1,4 @@
-"""Tests for PipelineBuilder (builder_new.py)."""
+"""Tests for PipelineBuilder (builder.py)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pytest
 from backend.graph.descriptor import NodeDescriptor, NodeStrategy
 from backend.graph.registry import NodeRegistry
 from backend.graph.resolver import DependencyResolver
-from backend.graph.builder_new import PipelineBuilder, _safe_dispatch
+from backend.graph.builder import PipelineBuilder, _safe_dispatch
 
 
 def _desc(name, **kw):
@@ -96,7 +96,7 @@ class TestWrapNode:
 
         state = {"job_id": "w1", "input_type": "text", "assets": {}, "data": {}, "pipeline_config": {}, "node_trace": []}
 
-        with patch("backend.graph.builder_new._safe_dispatch", side_effect=capture):
+        with patch("backend.graph.builder._safe_dispatch", side_effect=capture):
             result = await wrapped(state)
 
         assert len(dispatched) == 2
@@ -124,7 +124,7 @@ class TestWrapNode:
 
         state = {"job_id": "nf1", "input_type": "text", "assets": {}, "data": {}, "pipeline_config": {}, "node_trace": []}
 
-        with patch("backend.graph.builder_new._safe_dispatch", side_effect=capture):
+        with patch("backend.graph.builder._safe_dispatch", side_effect=capture):
             result = await wrapped(state)
 
         # Should not raise, returns trace with error info
@@ -142,7 +142,7 @@ class TestWrapNode:
 
         state = {"job_id": "f1", "input_type": "text", "assets": {}, "data": {}, "pipeline_config": {}, "node_trace": []}
 
-        with patch("backend.graph.builder_new._safe_dispatch", new_callable=AsyncMock):
+        with patch("backend.graph.builder._safe_dispatch", new_callable=AsyncMock):
             with pytest.raises(RuntimeError, match="fatal"):
                 await wrapped(state)
 
@@ -157,7 +157,7 @@ class TestWrapNode:
 
         state = {"job_id": "t1", "input_type": "text", "assets": {}, "data": {}, "pipeline_config": {}, "node_trace": []}
 
-        with patch("backend.graph.builder_new._safe_dispatch", new_callable=AsyncMock):
+        with patch("backend.graph.builder._safe_dispatch", new_callable=AsyncMock):
             result = await wrapped(state)
 
         assert len(result["node_trace"]) == 1
@@ -225,7 +225,7 @@ class TestWrapNodeLegacyReturn:
         wrapped = builder._wrap_node(desc)
 
         state = {"job_id": "lg1", "input_type": "text", "assets": {}, "data": {}, "pipeline_config": {}, "node_trace": []}
-        with patch("backend.graph.builder_new._safe_dispatch", new_callable=AsyncMock):
+        with patch("backend.graph.builder._safe_dispatch", new_callable=AsyncMock):
             result = await wrapped(state)
 
         assert result["step_path"] == "/tmp/out.step"
@@ -246,7 +246,7 @@ class TestWrapNodeLegacyReturn:
         wrapped = builder._wrap_node(desc)
 
         state = {"job_id": "r1", "input_type": "text", "assets": {}, "data": {}, "pipeline_config": {}, "node_trace": []}
-        with patch("backend.graph.builder_new._safe_dispatch", new_callable=AsyncMock):
+        with patch("backend.graph.builder._safe_dispatch", new_callable=AsyncMock):
             result = await wrapped(state)
 
         # _reasoning should be popped from diff

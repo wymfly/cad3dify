@@ -332,7 +332,7 @@ class TestDependencyResolverOrganic:
     def test_resolve_all_compiles(self) -> None:
         """resolve_all (no input_type filter) should still compile."""
         resolved = DependencyResolver.resolve_all(registry, {})
-        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.builder import PipelineBuilder
         from backend.graph.interceptors import default_registry
         builder = PipelineBuilder()
         graph = builder.build(resolved, interceptor_registry=default_registry)
@@ -443,29 +443,6 @@ class TestFinalizeNodeAssetAware:
             result = await finalize_node(state)
 
         assert result["status"] == "failed"
-
-
-# ---------------------------------------------------------------------------
-# 6.4 Deprecation Warning
-# ---------------------------------------------------------------------------
-
-
-class TestPostprocessOrganicDeprecation:
-    """Verify postprocess_organic_node emits DeprecationWarning."""
-
-    @pytest.mark.asyncio
-    async def test_deprecation_warning_emitted(self) -> None:
-        """postprocess_organic_node should emit a DeprecationWarning."""
-        from backend.graph.nodes.organic import postprocess_organic_node
-
-        state = {
-            "job_id": "deprecation-test",
-            "input_type": "organic",
-            "raw_mesh_path": None,  # will cause early return
-        }
-
-        with pytest.warns(DeprecationWarning, match="postprocess_organic_node is deprecated"):
-            await postprocess_organic_node(state)
 
 
 # ---------------------------------------------------------------------------

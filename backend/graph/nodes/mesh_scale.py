@@ -1,7 +1,5 @@
 """Mesh scale node — uniform scaling with Z-align and XY-center.
 
-New-mode node (NodeContext signature) for builder_new.py only.
-
 Execution order:
   1. Uniform scale: scale_factor = min(target[i] / current_extent[i])
   2. Z=0 bottom alignment: translate Z so bbox.min.z = 0

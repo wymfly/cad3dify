@@ -523,7 +523,7 @@ class TestFallbackIntegration:
     @pytest.mark.asyncio
     async def test_auto_fallback_to_neural(self):
         """algorithm 策略 execute 抛异常 → auto 模式 fallback 到 neural。"""
-        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.builder import PipelineBuilder
         from backend.graph.descriptor import NodeDescriptor, NodeStrategy
 
         class FailAlgorithm(NodeStrategy):
@@ -570,7 +570,7 @@ class TestFallbackIntegration:
     @pytest.mark.asyncio
     async def test_auto_algorithm_success_no_fallback(self):
         """algorithm 策略成功 → fallback_triggered=False。"""
-        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.builder import PipelineBuilder
         from backend.graph.descriptor import NodeDescriptor, NodeStrategy
 
         class SuccessAlgorithm(NodeStrategy):
@@ -612,7 +612,7 @@ class TestFallbackIntegration:
     @pytest.mark.asyncio
     async def test_auto_neural_disabled_only_tries_algorithm(self):
         """auto 模式 + neural 未配置 → 仅尝试 algorithm，neural 不参与 fallback。"""
-        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.builder import PipelineBuilder
         from backend.graph.descriptor import NodeDescriptor, NodeStrategy
 
         neural_called = False
@@ -658,7 +658,7 @@ class TestFallbackIntegration:
     @pytest.mark.asyncio
     async def test_auto_neural_disabled_algorithm_fails_hard_error(self):
         """auto 模式 + neural disabled + algorithm 失败 → 硬错误（raise）。"""
-        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.builder import PipelineBuilder
         from backend.graph.descriptor import NodeDescriptor, NodeStrategy
 
         class FailAlgorithm(NodeStrategy):

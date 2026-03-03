@@ -1,7 +1,6 @@
 """generate_raw_mesh — strategized 3D mesh generation node.
 
-Replaces the monolithic generate_organic_mesh_node with a strategy-based
-node supporting 4 models: Hunyuan3D, Tripo3D, SPAR3D, TRELLIS.
+Strategy-based node supporting 4 models: Hunyuan3D, Tripo3D, SPAR3D, TRELLIS.
 
 Each model is a separate strategy with dual deployment support
 (SaaS API and/or local HTTP endpoint).
