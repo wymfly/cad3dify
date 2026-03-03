@@ -1,45 +1,41 @@
 # cad3dify
 
-Using GPT-5 (or Claude 4.5 opus, Gemini 3 pro, Llama 3.2 on Vertex AI), generate a 3D CAD model (STEP file) from a 2D CAD image.
+AI-driven natural language / engineering drawing → industrial-grade 3D CAD model generation platform.
 
 ## Getting started
-
-Installation.
 
 ```bash
 git clone git@github.com:neka-nat/cad3dify.git
 cd cad3dify
-poetry install
+uv sync
+cp .env.sample .env  # Configure API keys
 ```
 
-Run script.
-A STEP`file ("output.step") will be generated.
+## Run
 
 ```bash
-cd scripts
-export OPENAI_API_KEY=<YOUR API KEY>
-python cli.py <2D CAD Image File>
-```
+# Start backend + frontend
+./scripts/start.sh
 
-Or run streamlit spp
+# Backend only (:8780)
+./scripts/start.sh backend
 
-```bash
-streamlit run scripts/app.py
-streamlit run scripts/app.py -- --model_type claude  # Use Claude 4.5 sonnet
-streamlit run scripts/app.py -- --model_type gemini  # Use Gemini 3.0 pro preview
-streamlit run scripts/app.py -- --model_type llama  # Use Llama 3.2 on Vertex AI
+# Frontend only (:3001)
+./scripts/start.sh frontend
+
+# Stop all
+./scripts/start.sh stop
 ```
 
 ## Architecture
 
 ```mermaid
 graph TD
-    Input((Input Image)) --> CodeGenerator(CAD Code Generator AI Agent)
-    CodeGenerator --> PythonDebugger(Python Execution and Debugging AI Agent)
-    PythonDebugger --> StepFile((STEP File))
-    StepFile --> Rendering(Rendering 3D CAD Model Image from STEP File)
-    Rendering --> Refiner(CAD Code Refiner AI Agent)
-    Refiner --> PythonDebugger
+    Input((User Input: Text / Drawing / Parameters)) --> LangGraph(LangGraph Dual Pipeline)
+    LangGraph --> Precision(Precision Pipeline: Drawing → CadQuery → STEP)
+    LangGraph --> Organic(Organic Pipeline: Text → AI Mesh → GLB)
+    Precision --> Output((3D CAD Model))
+    Organic --> Output
 ```
 
 ## Demo

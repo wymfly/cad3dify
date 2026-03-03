@@ -1,8 +1,7 @@
 """Test configuration.
 
-The top-level ``cadpilot/__init__.py`` imports v1 chains that depend on
-``langchain``, ``cadquery``, and other heavy packages that are not
-installed in the lightweight test environment.
+The ``backend`` package imports ``langchain``, ``cadquery``, and other
+heavy packages that are not installed in the lightweight test environment.
 
 We install a custom meta-path finder that intercepts *any* import of
 known third-party packages and returns a lightweight stub module.

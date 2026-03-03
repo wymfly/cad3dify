@@ -188,9 +188,6 @@ uv run uvicorn backend.main:app --port 8780
 ./scripts/start.sh backend  # 仅后端 (:8780)
 ./scripts/start.sh frontend # 仅前端 (:3001)
 ./scripts/start.sh stop     # 停止所有
-
-# CLI 生成
-uv run python scripts/cli.py sample_data/g1-3.jpg --output_filepath output.step
 ```
 
 ---
