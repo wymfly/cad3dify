@@ -711,3 +711,391 @@ class TestTRELLISGenerateStrategy:
 
         ctx.put_asset.assert_called_once()
         assert ctx.put_asset.call_args[0][0] == "raw_mesh"
+
+
+# ---------------------------------------------------------------------------
+# generate_raw_mesh node registration
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateRawMeshNodeRegistration:
+    """Verify generate_raw_mesh is registered with correct metadata."""
+
+    def test_node_registered_in_registry(self):
+        """registry.get("generate_raw_mesh") returns descriptor."""
+        from backend.graph.registry import registry
+
+        # Force import to trigger @register_node
+        import backend.graph.nodes.generate_raw_mesh  # noqa: F401
+
+        desc = registry.get("generate_raw_mesh")
+        assert desc.name == "generate_raw_mesh"
+        assert desc.display_name == "网格生成"
+
+    def test_node_requires_confirmed_params(self):
+        from backend.graph.registry import registry
+
+        import backend.graph.nodes.generate_raw_mesh  # noqa: F401
+
+        desc = registry.get("generate_raw_mesh")
+        assert "confirmed_params" in desc.requires
+
+    def test_node_produces_raw_mesh(self):
+        from backend.graph.registry import registry
+
+        import backend.graph.nodes.generate_raw_mesh  # noqa: F401
+
+        desc = registry.get("generate_raw_mesh")
+        assert "raw_mesh" in desc.produces
+
+    def test_node_input_types_organic(self):
+        from backend.graph.registry import registry
+
+        import backend.graph.nodes.generate_raw_mesh  # noqa: F401
+
+        desc = registry.get("generate_raw_mesh")
+        assert desc.input_types == ["organic"]
+
+    def test_node_has_four_strategies(self):
+        from backend.graph.registry import registry
+
+        import backend.graph.nodes.generate_raw_mesh  # noqa: F401
+
+        desc = registry.get("generate_raw_mesh")
+        assert set(desc.strategies.keys()) == {
+            "hunyuan3d", "tripo3d", "spar3d", "trellis",
+        }
+
+    def test_node_default_strategy_hunyuan3d(self):
+        from backend.graph.registry import registry
+
+        import backend.graph.nodes.generate_raw_mesh  # noqa: F401
+
+        desc = registry.get("generate_raw_mesh")
+        assert desc.default_strategy == "hunyuan3d"
+
+    def test_node_fallback_chain(self):
+        from backend.graph.registry import registry
+
+        import backend.graph.nodes.generate_raw_mesh  # noqa: F401
+
+        desc = registry.get("generate_raw_mesh")
+        assert desc.fallback_chain == [
+            "hunyuan3d", "tripo3d", "spar3d", "trellis",
+        ]
+
+    def test_config_model_is_generate_raw_mesh_config(self):
+        from backend.graph.configs.generate_raw_mesh import GenerateRawMeshConfig
+        from backend.graph.registry import registry
+
+        import backend.graph.nodes.generate_raw_mesh  # noqa: F401
+
+        desc = registry.get("generate_raw_mesh")
+        assert desc.config_model is GenerateRawMeshConfig
+
+    def test_strategy_classes_correct(self):
+        from backend.graph.registry import registry
+        from backend.graph.strategies.generate.hunyuan3d import Hunyuan3DGenerateStrategy
+        from backend.graph.strategies.generate.tripo3d import Tripo3DGenerateStrategy
+        from backend.graph.strategies.generate.spar3d import SPAR3DGenerateStrategy
+        from backend.graph.strategies.generate.trellis import TRELLISGenerateStrategy
+
+        import backend.graph.nodes.generate_raw_mesh  # noqa: F401
+
+        desc = registry.get("generate_raw_mesh")
+        assert desc.strategies["hunyuan3d"] is Hunyuan3DGenerateStrategy
+        assert desc.strategies["tripo3d"] is Tripo3DGenerateStrategy
+        assert desc.strategies["spar3d"] is SPAR3DGenerateStrategy
+        assert desc.strategies["trellis"] is TRELLISGenerateStrategy
+
+
+# ---------------------------------------------------------------------------
+# generate_raw_mesh node execution
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateRawMeshNodeExecution:
+    """Test the node function behavior (auto vs explicit strategy)."""
+
+    def _make_ctx(
+        self,
+        strategy: str = "hunyuan3d",
+    ) -> MagicMock:
+        """Build a mock NodeContext."""
+        ctx = MagicMock()
+        ctx.config = MagicMock()
+        ctx.config.strategy = strategy
+        ctx.config.output_format = "glb"
+        ctx.execute_with_fallback = AsyncMock()
+        mock_strategy = AsyncMock()
+        mock_strategy.execute = AsyncMock()
+        ctx.get_strategy = MagicMock(return_value=mock_strategy)
+        ctx.dispatch_progress = AsyncMock()
+        ctx.put_asset = MagicMock()
+        ctx.job_id = "job-test"
+        ctx.node_name = "generate_raw_mesh"
+        return ctx
+
+    @pytest.mark.asyncio
+    async def test_auto_mode_calls_execute_with_fallback(self):
+        """strategy='auto' delegates to ctx.execute_with_fallback()."""
+        from backend.graph.nodes.generate_raw_mesh import generate_raw_mesh_node
+
+        ctx = self._make_ctx(strategy="auto")
+        await generate_raw_mesh_node(ctx)
+        ctx.execute_with_fallback.assert_awaited_once()
+        ctx.get_strategy.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_explicit_strategy_calls_get_strategy(self):
+        """Non-auto strategy calls ctx.get_strategy().execute(ctx)."""
+        from backend.graph.nodes.generate_raw_mesh import generate_raw_mesh_node
+
+        ctx = self._make_ctx(strategy="tripo3d")
+        await generate_raw_mesh_node(ctx)
+        ctx.get_strategy.assert_called_once()
+        ctx.get_strategy.return_value.execute.assert_awaited_once_with(ctx)
+
+    @pytest.mark.asyncio
+    async def test_default_strategy_hunyuan3d(self):
+        """Default strategy is hunyuan3d -> goes through get_strategy."""
+        from backend.graph.nodes.generate_raw_mesh import generate_raw_mesh_node
+
+        ctx = self._make_ctx(strategy="hunyuan3d")
+        await generate_raw_mesh_node(ctx)
+        ctx.get_strategy.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_fallback_timeout_triggers_chain(self):
+        """Auto mode: timeout in execute_with_fallback propagates."""
+        import asyncio
+
+        from backend.graph.nodes.generate_raw_mesh import generate_raw_mesh_node
+
+        ctx = self._make_ctx(strategy="auto")
+        ctx.execute_with_fallback = AsyncMock(
+            side_effect=asyncio.TimeoutError("generation timeout"),
+        )
+
+        with pytest.raises(asyncio.TimeoutError):
+            await generate_raw_mesh_node(ctx)
+
+    @pytest.mark.asyncio
+    async def test_all_strategies_exhausted_raises(self):
+        """Auto mode: RuntimeError when all strategies fail."""
+        from backend.graph.nodes.generate_raw_mesh import generate_raw_mesh_node
+
+        ctx = self._make_ctx(strategy="auto")
+        ctx.execute_with_fallback = AsyncMock(
+            side_effect=RuntimeError("No strategy succeeded"),
+        )
+
+        with pytest.raises(RuntimeError, match="No strategy succeeded"):
+            await generate_raw_mesh_node(ctx)
+
+    @pytest.mark.asyncio
+    async def test_runtime_error_propagates_explicit(self):
+        """Non-auto mode: RuntimeError from strategy propagates."""
+        from backend.graph.nodes.generate_raw_mesh import generate_raw_mesh_node
+
+        ctx = self._make_ctx(strategy="tripo3d")
+        ctx.get_strategy.return_value.execute = AsyncMock(
+            side_effect=RuntimeError("HTTP 500"),
+        )
+
+        with pytest.raises(RuntimeError, match="HTTP 500"):
+            await generate_raw_mesh_node(ctx)
+
+
+# ---------------------------------------------------------------------------
+# put_asset format dynamic derivation
+# ---------------------------------------------------------------------------
+
+
+class TestPutAssetFormatDerivation:
+    """Verify put_asset format is derived from file suffix."""
+
+    @pytest.mark.asyncio
+    async def test_format_from_file_suffix(self):
+        """Strategy should derive format from result file suffix."""
+        from backend.graph.strategies.generate.tripo3d import Tripo3DGenerateStrategy
+
+        cfg = MagicMock()
+        cfg.tripo3d_api_key = "sk-test"
+        cfg.timeout = 120
+        cfg.output_format = "glb"
+
+        strategy = Tripo3DGenerateStrategy(config=cfg)
+
+        ctx = MagicMock()
+        ctx.get_data.return_value = {"prompt_en": "a cup", "reference_image": None}
+        ctx.dispatch_progress = AsyncMock()
+        ctx.put_asset = MagicMock()
+        ctx.job_id = "job-fmt"
+        ctx.node_name = "generate_raw_mesh"
+
+        mock_provider = AsyncMock()
+        # Return a path with .obj suffix (different from config output_format=glb)
+        mock_provider.generate = AsyncMock(return_value=Path("/tmp/out.obj"))
+
+        with patch.object(strategy, "_create_tripo_provider", return_value=mock_provider):
+            await strategy.execute(ctx)
+
+        # Format should be 'obj' (from suffix), not 'glb' (from config)
+        ctx.put_asset.assert_called_once()
+        call_args = ctx.put_asset.call_args[0]
+        assert call_args[0] == "raw_mesh"
+        assert call_args[2] == "obj"
+
+    @pytest.mark.asyncio
+    async def test_format_fallback_to_config(self):
+        """When file has no suffix, fallback to config.output_format."""
+        from backend.graph.strategies.generate.tripo3d import Tripo3DGenerateStrategy
+
+        cfg = MagicMock()
+        cfg.tripo3d_api_key = "sk-test"
+        cfg.timeout = 120
+        cfg.output_format = "glb"
+
+        strategy = Tripo3DGenerateStrategy(config=cfg)
+
+        ctx = MagicMock()
+        ctx.get_data.return_value = {"prompt_en": "a cup", "reference_image": None}
+        ctx.dispatch_progress = AsyncMock()
+        ctx.put_asset = MagicMock()
+        ctx.job_id = "job-fmt2"
+        ctx.node_name = "generate_raw_mesh"
+
+        mock_provider = AsyncMock()
+        # Return a path with no suffix
+        mock_provider.generate = AsyncMock(return_value=Path("/tmp/no_ext"))
+
+        with patch.object(strategy, "_create_tripo_provider", return_value=mock_provider):
+            await strategy.execute(ctx)
+
+        ctx.put_asset.assert_called_once()
+        call_args = ctx.put_asset.call_args[0]
+        # Should fallback to config output_format
+        assert call_args[2] == "glb"
+
+
+# ---------------------------------------------------------------------------
+# Legacy adapter: generate_organic_mesh_node
+# ---------------------------------------------------------------------------
+
+
+class TestLegacyAdapter:
+    """Test that generate_organic_mesh_node works as legacy adapter."""
+
+    def test_no_register_node_decorator(self):
+        """generate_organic_mesh_node should NOT have _node_descriptor."""
+        from backend.graph.nodes.organic import generate_organic_mesh_node
+
+        # After conversion to adapter, it should not be registered as a node
+        assert not hasattr(generate_organic_mesh_node, "_node_descriptor")
+
+    def test_function_signature_accepts_dict(self):
+        """Legacy adapter accepts dict (CadJobState) and returns dict."""
+        import inspect
+
+        from backend.graph.nodes.organic import generate_organic_mesh_node
+
+        sig = inspect.signature(generate_organic_mesh_node)
+        params = list(sig.parameters.keys())
+        assert "state" in params
+
+    @pytest.mark.asyncio
+    async def test_legacy_adapter_returns_dict(self):
+        """Legacy adapter returns a dict with raw_mesh_path."""
+        from backend.graph.nodes.organic import generate_organic_mesh_node
+
+        state = {
+            "job_id": "legacy-job-1",
+            "organic_provider": "hunyuan3d",
+            "organic_spec": {
+                "prompt_en": "a vase",
+                "prompt_original": "a vase",
+                "shape_category": "organic",
+            },
+            "organic_reference_image": None,
+        }
+
+        mock_provider = AsyncMock()
+        mock_provider.generate = AsyncMock(return_value=Path("/tmp/legacy.glb"))
+
+        # Patch at the source module (function imports locally from backend.infra.mesh_providers)
+        with patch(
+            "backend.infra.mesh_providers.HunyuanProvider",
+            return_value=mock_provider,
+        ):
+            with patch(
+                "backend.config.Settings",
+            ) as mock_settings_cls:
+                mock_settings = MagicMock()
+                mock_settings.hunyuan3d_api_key = "sk-test"
+                mock_settings.tripo3d_api_key = "sk-test"
+                mock_settings_cls.return_value = mock_settings
+                with patch(
+                    "backend.graph.nodes.organic._safe_update_job",
+                    new_callable=AsyncMock,
+                ):
+                    with patch(
+                        "backend.graph.nodes.organic._safe_dispatch",
+                        new_callable=AsyncMock,
+                    ):
+                        result = await generate_organic_mesh_node(state)
+
+        assert isinstance(result, dict)
+        assert "raw_mesh_path" in result
+
+    def test_no_duplicate_registration(self):
+        """generate_organic_mesh should not be in the registry."""
+        from backend.graph.registry import registry
+
+        # Import both to trigger registration
+        import backend.graph.nodes.generate_raw_mesh  # noqa: F401
+
+        assert "generate_organic_mesh" not in registry
+
+    def test_builder_legacy_can_import(self):
+        """builder_legacy.py can import generate_organic_mesh_node."""
+        from backend.graph.nodes.organic import generate_organic_mesh_node
+
+        assert callable(generate_organic_mesh_node)
+
+
+# ---------------------------------------------------------------------------
+# SSE progress events
+# ---------------------------------------------------------------------------
+
+
+class TestSSEProgressEvents:
+    """Verify ctx.dispatch_progress is called during generation."""
+
+    @pytest.mark.asyncio
+    async def test_strategy_dispatches_progress(self):
+        """Strategies should call ctx.dispatch_progress during execution."""
+        from backend.graph.strategies.generate.tripo3d import Tripo3DGenerateStrategy
+
+        cfg = MagicMock()
+        cfg.tripo3d_api_key = "sk-test"
+        cfg.timeout = 120
+        cfg.output_format = "glb"
+
+        strategy = Tripo3DGenerateStrategy(config=cfg)
+
+        ctx = MagicMock()
+        ctx.get_data.return_value = {"prompt_en": "a lamp", "reference_image": None}
+        ctx.dispatch_progress = AsyncMock()
+        ctx.put_asset = MagicMock()
+        ctx.job_id = "job-sse"
+        ctx.node_name = "generate_raw_mesh"
+
+        mock_provider = AsyncMock()
+        mock_provider.generate = AsyncMock(return_value=Path("/tmp/sse.glb"))
+
+        with patch.object(strategy, "_create_tripo_provider", return_value=mock_provider):
+            await strategy.execute(ctx)
+
+        # dispatch_progress should be called at least twice (start + end)
+        assert ctx.dispatch_progress.await_count >= 2

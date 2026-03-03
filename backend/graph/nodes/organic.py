@@ -105,14 +105,21 @@ async def analyze_organic_node(state: CadJobState) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Node 2: Generate raw mesh via provider API
+# Node 2 (Legacy adapter): Generate raw mesh via provider API
 # ---------------------------------------------------------------------------
 
 
-@register_node(name="generate_organic_mesh", display_name="有机网格生成",
-    requires=["confirmed_params"], produces=["raw_mesh"], input_types=["organic"])
 async def generate_organic_mesh_node(state: CadJobState) -> dict[str, Any]:
-    """Create MeshProvider, generate raw mesh, dispatch progress events."""
+    """Legacy adapter: CadJobState -> MeshProvider bridge.
+
+    WARNING: This function is retained solely for builder_legacy.py compatibility.
+    New code should use generate_raw_mesh_node (registered in
+    backend.graph.nodes.generate_raw_mesh) which supports strategy-based
+    dispatch with fallback chain.
+
+    This adapter preserves the old (state: dict) -> dict signature and
+    internally calls the existing MeshProvider logic directly.
+    """
     job_id = state["job_id"]
 
     # Idempotent: skip if mesh already exists
