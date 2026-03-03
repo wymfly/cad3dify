@@ -46,17 +46,24 @@ The system SHALL provide `build_compare_chain(structured: bool = False)` in `bac
 - **THEN** the formatted prompt SHALL include two `ImagePromptTemplate` entries (original + rendered)
 - **AND** the LLM SHALL be obtained via `get_model_for_role("refiner_vl").create_chat_model()`
 
-#### Scenario: Compare chain detects PASS
-- **WHEN** the VL model returns a response containing "PASS" and the response length is < 20 characters
+#### Scenario: Compare chain detects PASS (text mode)
+- **WHEN** `build_compare_chain(structured=False)` is used (default)
+- **AND** the VL model returns a response containing "PASS" (case-insensitive) and the response length is < 20 characters
 - **THEN** the chain SHALL return `{"result": None}` (no differences found)
+- **AND** the PASS detection SHALL use `"PASS" in text.upper() and len(text.strip()) < 20` — matching existing `_extract_comparison()` behavior
 
-#### Scenario: Compare chain detects FAIL with issues
-- **WHEN** the VL model returns a response describing differences
+#### Scenario: Compare chain detects FAIL with issues (text mode)
+- **WHEN** `build_compare_chain(structured=False)` is used (default)
+- **AND** the VL model returns a response describing differences
 - **THEN** the chain SHALL return `{"result": "<comparison_text>"}` with the full VL output
 
-#### Scenario: Structured mode returns JSON feedback
+#### Scenario: Structured mode returns parsed JSON feedback
 - **WHEN** `build_compare_chain(structured=True)` is used
 - **THEN** the chain SHALL use `_STRUCTURED_COMPARE_PROMPT` instead of `_COMPARE_PROMPT`
+- **AND** the output parser SHALL parse the VL response as JSON via `parse_vl_feedback()`
+- **AND** PASS detection SHALL use the parsed `feedback.passed` boolean field (NOT the text length heuristic)
+- **AND** return `{"result": None}` if `feedback.passed is True`
+- **AND** return `{"result": feedback.to_fix_instructions()}` if `feedback.passed is False`
 
 ### Requirement: Code fix LCEL chain replaces SmartFixChain
 
@@ -74,13 +81,26 @@ The system SHALL provide `build_fix_chain()` in `backend/graph/chains/fix_chain.
 
 ### Requirement: All chain builders follow consistent factory pattern
 
-The system SHALL ensure all `build_*_chain()` functions follow a consistent pattern: `async def build_xxx_chain(**kwargs) -> Runnable`.
+The system SHALL ensure all `build_*_chain()` functions follow a consistent pattern: `def build_xxx_chain(**kwargs) -> Runnable` (**synchronous** factory — no `async def`). The factory assembles an LCEL pipeline (`prompt | llm | parser`) and returns a `Runnable`. Callers invoke the chain asynchronously via `await chain.ainvoke(inputs)`.
 
 #### Scenario: Factory function returns composable Runnable
 - **WHEN** any `build_*_chain()` is called
 - **THEN** the returned object SHALL be a LangChain `Runnable` supporting `.ainvoke()`, `.invoke()`, `.with_retry()`, and `.with_fallbacks()`
+- **AND** the factory function itself SHALL be synchronous (`def`, not `async def`)
 
 #### Scenario: Factory function does not cache LLM instances
 - **WHEN** `build_vision_analysis_chain()` is called twice
 - **THEN** each call SHALL create a new LLM instance via `get_model_for_role()`
 - **AND** the caller is responsible for caching if needed
+
+### Requirement: Callers are responsible for input adaptation
+
+The system SHALL document the expected input format for each chain builder. Callers (LangGraph nodes) SHALL perform input adaptation before calling `chain.ainvoke()`:
+- `build_vision_analysis_chain()`: caller must decompose `ImageData` into `{"image_type": str, "image_data": str}` (replacing `DrawingAnalyzerChain.prep_inputs()`)
+- `build_code_gen_chain()`: caller must convert `ModelingContext` to `{"modeling_context": str}` via `.to_prompt_text()` (replacing `CodeGeneratorChain.prep_inputs()`)
+- `build_compare_chain()` / `build_fix_chain()`: input is already flat dict, no adaptation needed
+
+#### Scenario: Vision node adapts ImageData before chain invocation
+- **WHEN** `analyze_vision_node` calls the vision chain
+- **THEN** it SHALL decompose `ImageData` to `{"image_type": image.type, "image_data": image.data}` before `chain.ainvoke()`
+- **AND** SHALL validate that `image_data` is non-empty (replacing the `assert isinstance(image, ImageData)` guard in `DrawingAnalyzerChain.prep_inputs()`)

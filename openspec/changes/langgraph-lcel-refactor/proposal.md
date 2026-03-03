@@ -4,8 +4,8 @@
 
 ## What Changes
 
-- **BREAKING**: 删除 `DrawingAnalyzerChain`、`CodeGeneratorChain`、`SmartCompareChain`、`SmartFixChain` 四个 SequentialChain 类，替换为 LCEL Runnable（`prompt | llm | parser`）
-- **BREAKING**: 删除 `backend/pipeline/pipeline.py` 中的 `analyze_vision_spec()`、`generate_step_from_spec()` 编排函数，将其逻辑直接内联到对应 LangGraph 节点中
+- **DEPRECATED → BREAKING（分两步）**: 第一步标记 `DrawingAnalyzerChain`、`CodeGeneratorChain`、`SmartCompareChain`、`SmartFixChain` 为 `@deprecated`，替换为 LCEL Runnable（`prompt | llm | parser`）；第二步（下一版本周期）删除旧类
+- **DEPRECATED → BREAKING（分两步）**: 第一步停止 LangGraph 节点对 `analyze_vision_spec()`、`generate_step_from_spec()` 的调用，保留 `analyze_and_generate_step()` 入口暂用旧 Chain；第二步统一删除
 - 统一所有 LLM 调用为原生异步（`ainvoke()`），消除 `asyncio.to_thread()` 包装
 - SmartRefiner 的 Compare→Fix 循环改为 LangGraph 子图（subgraph），支持检查点恢复
 - Best-of-N 代码生成改为节点内异步并发（`asyncio.gather`），不再串行
@@ -15,7 +15,7 @@
 ## Capabilities
 
 ### New Capabilities
-- `lcel-chain-builders`: LCEL Runnable 构建器模块——为项目中所有 LLM 调用场景（视觉分析、代码生成、VL 对比、代码修复）提供统一的 `async def build_xxx_chain() -> Runnable` 工厂函数
+- `lcel-chain-builders`: LCEL Runnable 构建器模块——为项目中所有 LLM 调用场景（视觉分析、代码生成、VL 对比、代码修复）提供统一的 `def build_xxx_chain() -> Runnable` 同步工厂函数（返回 Runnable 支持 `.ainvoke()` 异步调用）
 - `refiner-subgraph`: SmartRefiner 子图——将 Compare→Fix ≤3 轮循环建模为 LangGraph 子图，支持检查点和 SSE 进度事件
 
 ### Modified Capabilities

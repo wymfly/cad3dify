@@ -35,9 +35,11 @@ The system SHALL wrap every LLM call in a LCEL chain with `.with_retry(stop_afte
 - **AND** the enclosing `asyncio.wait_for` block catches it as a node error
 - **AND** the node returns `{"status": "failed", "error": str(exc), "failure_reason": "generation_error"}`
 
-### Requirement: asyncio.wait_for enforces absolute timeout per node
+### Requirement: asyncio.wait_for enforces absolute timeout per node (tiered)
 
-The system SHALL wrap each LLM node's LCEL chain invocation in `asyncio.wait_for(timeout=60.0)` to enforce an absolute 60-second budget per node, regardless of retry count.
+The system SHALL wrap each LLM node's invocation in `asyncio.wait_for(timeout=T)` where T depends on node type:
+- **Lightweight nodes** (single LLM call: `analyze_intent_node`, `analyze_vision_node`): `T = 60.0` seconds
+- **Heavyweight nodes** (multi-call orchestration: `generate_step_drawing_node`): `T = 300.0` seconds (accommodates Best-of-N concurrent generation + up to 3 Refiner rounds)
 
 #### Scenario: LLM call completes within 60 seconds
 - **WHEN** `analyze_intent_node` completes the LCEL chain within 60 seconds

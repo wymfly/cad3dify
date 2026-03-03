@@ -41,11 +41,13 @@ The system SHALL implement a single `CadJobStateGraph` using LangGraph `StateGra
 - **AND** `check_printability()` runs exactly once to produce the DfAM report
 - **AND** `finalize_node` updates DB to COMPLETED and closes the stream
 
-#### Scenario: Best-of-N generation runs concurrently
+#### Scenario: Best-of-N generation runs with concurrent LLM + serial execution
 - **WHEN** `generate_step_drawing_node` runs with `config.best_of_n > 1`
-- **THEN** the node SHALL invoke `asyncio.gather(*[chain.ainvoke(ctx) for _ in range(N)])` to generate N candidates concurrently
-- **AND** each candidate SHALL be executed and scored in an isolated temp directory
+- **THEN** the node SHALL invoke `asyncio.gather(*[chain.ainvoke(ctx) for _ in range(N)])` to generate N code candidates concurrently (LLM-only phase, no file system side effects)
+- **AND** each generated candidate SHALL be executed **serially** via `SafeExecutor(output_dir=tempdir).execute()` in an isolated temp directory (execution phase)
+- **AND** each candidate SHALL be scored via `_score_geometry()` after execution
 - **AND** the best candidate (highest geometry score) SHALL be selected and written to the final step_path
+- **NOTE** Execution is serial (not concurrent) because OCCT kernel is not thread-safe; `SafeExecutor` provides subprocess isolation per candidate
 
 ### Requirement: AsyncSqliteSaver enables checkpoint persistence
 
