@@ -484,3 +484,187 @@ class TestMeshHealerNode:
 
         desc = registry.get("mesh_healer")
         assert desc.config_model is MeshHealerConfig
+
+
+class TestFallbackIntegration:
+    """algorithm 失败 → auto 模式 fallback 到 neural。"""
+
+    @pytest.mark.asyncio
+    async def test_auto_fallback_to_neural(self):
+        """algorithm 策略 execute 抛异常 → auto 模式 fallback 到 neural。"""
+        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.descriptor import NodeDescriptor, NodeStrategy
+
+        class FailAlgorithm(NodeStrategy):
+            async def execute(self, ctx):
+                raise RuntimeError("algorithm failed")
+
+        class SuccessNeural(NodeStrategy):
+            async def execute(self, ctx):
+                ctx.put_data("healed_by", "neural")
+
+        async def fallback_node(ctx):
+            await ctx.execute_with_fallback()
+
+        desc = NodeDescriptor(
+            name="test_fallback",
+            display_name="Fallback Test",
+            fn=fallback_node,
+            strategies={"algorithm": FailAlgorithm, "neural": SuccessNeural},
+            default_strategy="algorithm",
+            fallback_chain=["algorithm", "neural"],
+        )
+        builder = PipelineBuilder()
+        wrapped = builder._wrap_node(desc)
+
+        state = {
+            "job_id": "j1", "input_type": "organic",
+            "assets": {}, "data": {},
+            "pipeline_config": {"test_fallback": {"strategy": "auto"}},
+            "node_trace": [],
+        }
+        result = await wrapped(state)
+
+        # Verify fallback trace
+        traces = result.get("node_trace", [])
+        assert len(traces) == 1
+        entry = traces[0]
+        assert entry["node"] == "test_fallback"
+        assert "fallback" in entry
+        fb = entry["fallback"]
+        assert fb["fallback_triggered"] is True
+        assert fb["strategy_used"] == "neural"
+        assert len(fb["strategies_attempted"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_auto_algorithm_success_no_fallback(self):
+        """algorithm 策略成功 → fallback_triggered=False。"""
+        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.descriptor import NodeDescriptor, NodeStrategy
+
+        class SuccessAlgorithm(NodeStrategy):
+            async def execute(self, ctx):
+                ctx.put_data("healed_by", "algorithm")
+
+        class SuccessNeural(NodeStrategy):
+            async def execute(self, ctx):
+                ctx.put_data("healed_by", "neural")
+
+        async def fallback_node(ctx):
+            await ctx.execute_with_fallback()
+
+        desc = NodeDescriptor(
+            name="test_no_fallback",
+            display_name="No Fallback Test",
+            fn=fallback_node,
+            strategies={"algorithm": SuccessAlgorithm, "neural": SuccessNeural},
+            default_strategy="algorithm",
+            fallback_chain=["algorithm", "neural"],
+        )
+        builder = PipelineBuilder()
+        wrapped = builder._wrap_node(desc)
+
+        state = {
+            "job_id": "j1", "input_type": "organic",
+            "assets": {}, "data": {},
+            "pipeline_config": {"test_no_fallback": {"strategy": "auto"}},
+            "node_trace": [],
+        }
+        result = await wrapped(state)
+
+        traces = result.get("node_trace", [])
+        assert len(traces) == 1
+        fb = traces[0]["fallback"]
+        assert fb["fallback_triggered"] is False
+        assert fb["strategy_used"] == "algorithm"
+
+    @pytest.mark.asyncio
+    async def test_auto_neural_disabled_only_tries_algorithm(self):
+        """auto 模式 + neural 未配置 → 仅尝试 algorithm，neural 不参与 fallback。"""
+        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.descriptor import NodeDescriptor, NodeStrategy
+
+        neural_called = False
+
+        class SuccessAlgorithm(NodeStrategy):
+            async def execute(self, ctx):
+                ctx.put_data("healed_by", "algorithm")
+
+        class NeuralShouldNotBeCalled(NodeStrategy):
+            def check_available(self) -> bool:
+                return False
+
+            async def execute(self, ctx):
+                nonlocal neural_called
+                neural_called = True
+
+        async def fallback_node(ctx):
+            await ctx.execute_with_fallback()
+
+        desc = NodeDescriptor(
+            name="test_neural_disabled",
+            display_name="Neural Disabled Test",
+            fn=fallback_node,
+            strategies={
+                "algorithm": SuccessAlgorithm,
+                "neural": NeuralShouldNotBeCalled,
+            },
+            default_strategy="algorithm",
+            fallback_chain=["algorithm", "neural"],
+        )
+        builder = PipelineBuilder()
+        wrapped = builder._wrap_node(desc)
+
+        state = {
+            "job_id": "j1", "input_type": "organic",
+            "assets": {}, "data": {},
+            "pipeline_config": {"test_neural_disabled": {"strategy": "auto"}},
+            "node_trace": [],
+        }
+        result = await wrapped(state)
+        assert not neural_called
+
+    @pytest.mark.asyncio
+    async def test_auto_neural_disabled_algorithm_fails_hard_error(self):
+        """auto 模式 + neural disabled + algorithm 失败 → 硬错误（raise）。"""
+        from backend.graph.builder_new import PipelineBuilder
+        from backend.graph.descriptor import NodeDescriptor, NodeStrategy
+
+        class FailAlgorithm(NodeStrategy):
+            async def execute(self, ctx):
+                raise RuntimeError("all levels exhausted")
+
+        class NeuralDisabled(NodeStrategy):
+            def check_available(self) -> bool:
+                return False
+
+            async def execute(self, ctx):
+                raise AssertionError("should never be called")
+
+        async def fallback_node(ctx):
+            await ctx.execute_with_fallback()
+
+        desc = NodeDescriptor(
+            name="test_hard_fail",
+            display_name="Hard Fail Test",
+            fn=fallback_node,
+            strategies={
+                "algorithm": FailAlgorithm,
+                "neural": NeuralDisabled,
+            },
+            default_strategy="algorithm",
+            fallback_chain=["algorithm", "neural"],
+        )
+        builder = PipelineBuilder()
+        wrapped = builder._wrap_node(desc)
+
+        state = {
+            "job_id": "j1", "input_type": "organic",
+            "assets": {}, "data": {},
+            "pipeline_config": {"test_hard_fail": {"strategy": "auto"}},
+            "node_trace": [],
+        }
+
+        # _wrap_node re-raises when non_fatal=False → exception propagates
+        with pytest.raises(RuntimeError, match="No strategy succeeded"):
+            await wrapped(state)
