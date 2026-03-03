@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
 import numpy as np
 import pytest
 
@@ -200,6 +203,30 @@ class TestTPMSStrategy:
         bbox_max = np.array([20, 20, 20])
         lattice = strat.generate_lattice(bbox_min, bbox_max)
         assert len(lattice.vertices) > 0
+
+
+class TestApplyLatticeNode:
+    @pytest.mark.asyncio
+    async def test_node_registered_with_tpms_strategy(self):
+        from backend.graph.nodes.apply_lattice import apply_lattice_node
+
+        desc = apply_lattice_node._node_descriptor
+        assert "tpms" in desc.strategies
+        assert desc.name == "apply_lattice"
+        assert desc.non_fatal is True
+
+    @pytest.mark.asyncio
+    async def test_node_skips_without_input(self):
+        from backend.graph.nodes.apply_lattice import apply_lattice_node
+
+        ctx = MagicMock()
+        ctx.has_asset.return_value = False
+        ctx.config = MagicMock()
+        ctx.config.strategy = "tpms"
+        ctx.config.enabled = True
+
+        await apply_lattice_node(ctx)
+        ctx.put_data.assert_called_with("apply_lattice_status", "skipped_no_input")
 
 
 def _make_box_mesh(x: float, y: float, z: float):
