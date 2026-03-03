@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from backend.models.job import (
@@ -76,17 +76,26 @@ async def _init_and_clean_db():
 def _mock_graph_analysis():
     """Mock LLM-dependent analysis functions for graph integration tests."""
     mock_intent = {"description": "test part", "parameters": {"diameter": 50}}
+    mock_spec = MagicMock()
+    mock_spec.model_dump.return_value = {"part_type": "rotational"}
+    mock_chain = AsyncMock()
+    mock_chain.ainvoke.return_value = mock_spec
+    mock_image = MagicMock(type="jpg", data="ZmFrZQ==")
     with (
         patch(
             "backend.graph.nodes.analysis._parse_intent",
             new_callable=AsyncMock,
             return_value=mock_intent,
         ),
+        patch("backend.graph.nodes.analysis._cost_optimizer") as mock_optimizer,
         patch(
-            "backend.graph.nodes.analysis._run_analyze_vision",
-            return_value=({"part_type": "rotational"}, "mock reasoning"),
+            "backend.graph.nodes.analysis.build_vision_analysis_chain",
+            return_value=mock_chain,
         ),
+        patch("backend.graph.nodes.analysis.ImageData") as mock_image_cls,
     ):
+        mock_optimizer.get_cached_result.return_value = None
+        mock_image_cls.load_from_file.return_value = mock_image
         yield
 
 

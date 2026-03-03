@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,8 @@ from backend.graph.state import CadJobState
 from backend.models.job import update_job as _update_job
 
 from backend.core.cost_optimizer import CostOptimizer
+from backend.graph.chains import build_vision_analysis_chain
+from backend.infra.image import ImageData
 
 logger = logging.getLogger(__name__)
 
@@ -54,14 +57,6 @@ async def _parse_intent(text: str) -> dict:
     if hasattr(result, "model_dump"):
         return result.model_dump()
     return result
-
-
-def _run_analyze_vision(image_path: str) -> tuple:
-    """Synchronous vision analysis — delegates to pipeline."""
-    from backend.pipeline.pipeline import analyze_vision_spec
-    spec, reasoning = analyze_vision_spec(image_path)
-    spec_dict = spec.model_dump() if hasattr(spec, "model_dump") else spec
-    return spec_dict, reasoning
 
 
 @register_node(name="analyze_intent", display_name="分析用户意图",
@@ -180,12 +175,14 @@ async def analyze_vision_node(state: CadJobState) -> dict[str, Any]:
             "_reasoning": {"error": "No image_path provided"},
         }
 
-    # Check result cache (keyed by image content SHA256)
+    # Load image for cache check and chain invocation
     try:
-        image_data = await asyncio.to_thread(Path(image_path).read_bytes)
-        cached = _cost_optimizer.get_cached_result(image_data)
+        image_data_obj = await asyncio.to_thread(ImageData.load_from_file, image_path)
+        raw_bytes = base64.b64decode(image_data_obj.data)
+        cached = _cost_optimizer.get_cached_result(raw_bytes)
     except Exception:
-        image_data = None
+        image_data_obj = None
+        raw_bytes = None
         cached = None
 
     if cached is not None:
@@ -193,13 +190,30 @@ async def analyze_vision_node(state: CadJobState) -> dict[str, Any]:
         logger.info("Vision analysis cache hit for job %s", state["job_id"])
     else:
         try:
-            spec_dict, reasoning = await asyncio.wait_for(
-                asyncio.to_thread(_run_analyze_vision, image_path),
+            if image_data_obj is None:
+                image_data_obj = await asyncio.to_thread(ImageData.load_from_file, image_path)
+                raw_bytes = base64.b64decode(image_data_obj.data)
+
+            chain = build_vision_analysis_chain()
+            spec = await asyncio.wait_for(
+                chain.ainvoke({"image_type": image_data_obj.type, "image_data": image_data_obj.data}),
                 timeout=LLM_TIMEOUT_S,
             )
+
+            # OCR fusion
+            if spec is not None and raw_bytes is not None:
+                from backend.core.drawing_analyzer import fuse_ocr_with_spec
+                try:
+                    spec = fuse_ocr_with_spec(spec, raw_bytes)
+                except Exception:
+                    pass  # OCR failure is non-fatal
+
+            spec_dict = spec.model_dump() if spec and hasattr(spec, "model_dump") else spec
+            reasoning = None  # LCEL chain doesn't return separate reasoning
+
             # Store in cache for future identical images
-            if image_data is not None:
-                _cost_optimizer.cache_result(image_data, (spec_dict, reasoning))
+            if raw_bytes is not None:
+                _cost_optimizer.cache_result(raw_bytes, (spec_dict, reasoning))
         except Exception as exc:
             reason = map_exception_to_failure_reason(exc)
             logger.error("Vision analysis failed: %s (%s)", exc, reason)

@@ -203,15 +203,24 @@ class TestHitlDrawingPath:
         }
 
         mock_spec = {"part_type": "rotational", "diameter": 30}
+        mock_spec_obj = MagicMock()
+        mock_spec_obj.model_dump.return_value = mock_spec
+        mock_chain = AsyncMock()
+        mock_chain.ainvoke.return_value = mock_spec_obj
+        mock_image = MagicMock(type="jpg", data="ZmFrZQ==")
 
         p1, p2, p3 = _lifecycle_patches()
         with (
             p1, p2, p3,
+            patch("backend.graph.nodes.analysis._cost_optimizer") as mock_optimizer,
             patch(
-                "backend.graph.nodes.analysis._run_analyze_vision",
-                return_value=(mock_spec, "reasoning text"),
+                "backend.graph.nodes.analysis.build_vision_analysis_chain",
+                return_value=mock_chain,
             ),
+            patch("backend.graph.nodes.analysis.ImageData") as mock_image_cls,
         ):
+            mock_optimizer.get_cached_result.return_value = None
+            mock_image_cls.load_from_file.return_value = mock_image
             result = await graph.ainvoke(initial, config=config)
 
         assert result["status"] == "awaiting_drawing_confirmation"
@@ -233,14 +242,21 @@ class TestHitlDrawingPath:
         }
 
         mock_spec = {"part_type": "rotational", "diameter": 30}
+        mock_spec_obj = MagicMock()
+        mock_spec_obj.model_dump.return_value = mock_spec
+        mock_chain = AsyncMock()
+        mock_chain.ainvoke.return_value = mock_spec_obj
+        mock_image = MagicMock(type="jpg", data="ZmFrZQ==")
 
         p1, p2, p3 = _lifecycle_patches()
         with (
             p1, p2, p3,
+            patch("backend.graph.nodes.analysis._cost_optimizer") as mock_optimizer,
             patch(
-                "backend.graph.nodes.analysis._run_analyze_vision",
-                return_value=(mock_spec, "reasoning text"),
+                "backend.graph.nodes.analysis.build_vision_analysis_chain",
+                return_value=mock_chain,
             ),
+            patch("backend.graph.nodes.analysis.ImageData") as mock_image_cls,
             patch("backend.graph.nodes.generation._run_generate_from_spec"),
             patch(
                 "backend.graph.nodes.postprocess._convert_step_to_glb",
@@ -251,6 +267,8 @@ class TestHitlDrawingPath:
                 return_value={"score": 0.85},
             ),
         ):
+            mock_optimizer.get_cached_result.return_value = None
+            mock_image_cls.load_from_file.return_value = mock_image
             # Phase 1 — interrupt
             result1 = await graph.ainvoke(initial, config=config)
             assert result1["status"] == "awaiting_drawing_confirmation"

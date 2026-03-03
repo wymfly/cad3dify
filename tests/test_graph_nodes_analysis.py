@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -72,14 +72,21 @@ class TestAnalyzeVisionNode:
             job_id="t1", input_type="drawing", image_path="/tmp/test.jpg",
             status="created",
         )
-        mock_spec = {"part_type": "rotational", "diameter": 30}
-        with patch(
-            "backend.graph.nodes.analysis._run_analyze_vision",
-            return_value=(mock_spec, "reasoning text"),
+        mock_spec = MagicMock()
+        mock_spec.model_dump.return_value = {"part_type": "rotational", "diameter": 30}
+        mock_chain = AsyncMock()
+        mock_chain.ainvoke.return_value = mock_spec
+        mock_image = MagicMock(type="jpg", data="ZmFrZQ==")
+        with (
+            patch("backend.graph.nodes.analysis._cost_optimizer") as mock_optimizer,
+            patch("backend.graph.nodes.analysis.ImageData") as mock_image_cls,
+            patch("backend.graph.nodes.analysis.build_vision_analysis_chain", return_value=mock_chain),
         ):
+            mock_optimizer.get_cached_result.return_value = None
+            mock_image_cls.load_from_file.return_value = mock_image
             result = await analyze_vision_node(state)
 
-        assert result["drawing_spec"] == mock_spec
+        assert result["drawing_spec"] == {"part_type": "rotational", "diameter": 30}
         assert result["status"] == "awaiting_drawing_confirmation"
 
     @pytest.mark.asyncio
@@ -90,10 +97,16 @@ class TestAnalyzeVisionNode:
             job_id="t1", input_type="drawing", image_path="/tmp/test.jpg",
             status="created",
         )
-        with patch(
-            "backend.graph.nodes.analysis._run_analyze_vision",
-            side_effect=asyncio.TimeoutError(),
+        mock_chain = AsyncMock()
+        mock_chain.ainvoke.side_effect = asyncio.TimeoutError()
+        mock_image = MagicMock(type="jpg", data="ZmFrZQ==")
+        with (
+            patch("backend.graph.nodes.analysis._cost_optimizer") as mock_optimizer,
+            patch("backend.graph.nodes.analysis.ImageData") as mock_image_cls,
+            patch("backend.graph.nodes.analysis.build_vision_analysis_chain", return_value=mock_chain),
         ):
+            mock_optimizer.get_cached_result.return_value = None
+            mock_image_cls.load_from_file.return_value = mock_image
             result = await analyze_vision_node(state)
 
         assert result["status"] == "failed"
