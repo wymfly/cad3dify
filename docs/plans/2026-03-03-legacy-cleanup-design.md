@@ -39,7 +39,7 @@
 
 ### D. deprecated 函数删除
 
-- `backend/graph/nodes/organic.py` 中的 `generate_organic_mesh_node` 和 `postprocess_organic_node`
+- `backend/graph/nodes/organic.py` 中的 `generate_organic_mesh_node`、`_load_reference_image` 和 `postprocess_organic_node`
 
 ### E. 遗留测试删除
 
