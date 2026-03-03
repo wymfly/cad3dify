@@ -2,24 +2,29 @@
 
 from __future__ import annotations
 
-import pytest
-import numpy as np
 from unittest.mock import MagicMock
+
+import numpy as np
+import pytest
 
 
 class TestOrientationOptimizerConfig:
     def test_defaults(self):
-        from backend.graph.configs.orientation_optimizer import OrientationOptimizerConfig
+        from backend.graph.configs.orientation_optimizer import \
+            OrientationOptimizerConfig
+
         cfg = OrientationOptimizerConfig()
         assert cfg.strategy == "basic"
         assert cfg.enabled is True
-        assert 0 < cfg.weight_support_area <= 1.0
-        assert 0 < cfg.weight_height <= 1.0
-        assert 0 < cfg.weight_stability <= 1.0
+        assert cfg.weight_support_area == 0.4
+        assert cfg.weight_height == 0.3
+        assert cfg.weight_stability == 0.3
 
     def test_weights_sum_validation(self):
         """Weights can be any positive float -- no sum constraint."""
-        from backend.graph.configs.orientation_optimizer import OrientationOptimizerConfig
+        from backend.graph.configs.orientation_optimizer import \
+            OrientationOptimizerConfig
+
         cfg = OrientationOptimizerConfig(
             weight_support_area=0.5,
             weight_height=0.3,
@@ -33,8 +38,10 @@ class TestBasicOrientStrategy:
 
     @pytest.fixture
     def strategy(self):
-        from backend.graph.configs.orientation_optimizer import OrientationOptimizerConfig
+        from backend.graph.configs.orientation_optimizer import \
+            OrientationOptimizerConfig
         from backend.graph.strategies.orient.basic import BasicOrientStrategy
+
         cfg = OrientationOptimizerConfig()
         return BasicOrientStrategy(config=cfg)
 
@@ -68,7 +75,59 @@ class TestBasicOrientStrategy:
         pytest.skip("Tested in Task 3 (node integration)")
 
 
+class TestScipyOrientStrategy:
+    """ScipyOrientStrategy: continuous optimization via differential_evolution."""
+
+    @pytest.fixture
+    def strategy(self):
+        from backend.graph.configs.orientation_optimizer import \
+            OrientationOptimizerConfig
+        from backend.graph.strategies.orient.scipy_orient import \
+            ScipyOrientStrategy
+
+        cfg = OrientationOptimizerConfig(
+            strategy="scipy",
+            scipy_max_iter=20,
+            scipy_popsize=5,
+        )
+        return ScipyOrientStrategy(config=cfg)
+
+    def test_check_available(self, strategy):
+        assert strategy.check_available() is True
+
+    def test_optimize_returns_rotation_matrix(self, strategy):
+        """optimize(mesh) returns (4x4 rotation matrix, score)."""
+        mesh = _make_box_mesh(10, 20, 30)
+        rotation, score = strategy.optimize(mesh)
+        assert rotation.shape == (4, 4)
+        assert isinstance(score, float)
+
+    def test_scipy_at_least_as_good_as_basic(self, strategy):
+        """Scipy should find score <= basic 6-direction score."""
+        from backend.graph.configs.orientation_optimizer import \
+            OrientationOptimizerConfig
+        from backend.graph.strategies.orient.basic import BasicOrientStrategy
+
+        cfg = OrientationOptimizerConfig()
+        basic = BasicOrientStrategy(config=cfg)
+
+        mesh = _make_box_mesh(30, 50, 80)
+        _, basic_score, _ = basic.find_best_orientation(mesh)
+        _, scipy_score = strategy.optimize(mesh)
+        # Scipy explores continuous space, should be at least equal
+        assert scipy_score <= basic_score + 1.0  # Small tolerance
+
+    def test_rotation_matrix_is_valid(self, strategy):
+        """Resulting rotation should be a valid rotation matrix (det ≈ 1)."""
+        mesh = _make_box_mesh(20, 20, 60)
+        rotation, _ = strategy.optimize(mesh)
+        # 3x3 rotation submatrix should have determinant ≈ 1
+        det = np.linalg.det(rotation[:3, :3])
+        assert abs(det - 1.0) < 1e-6
+
+
 def _make_box_mesh(x: float, y: float, z: float):
     """Create a simple box mesh for testing."""
     import trimesh
+
     return trimesh.creation.box(extents=[x, y, z])
