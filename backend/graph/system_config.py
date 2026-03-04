@@ -56,6 +56,38 @@ class SystemConfigStore:
     def get_node(self, node_name: str) -> dict[str, Any]:
         return self.load().get(node_name, {})
 
+    def update_nodes(self, updates: dict[str, dict[str, Any]]) -> None:
+        """Atomic read-modify-write: deep merge updates per node (TOCTOU-safe)."""
+        with self._lock:
+            if self._path.exists():
+                with open(self._path, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+            else:
+                existing = {}
+            for node_name, node_config in updates.items():
+                existing.setdefault(node_name, {}).update(node_config)
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            fd = tempfile.NamedTemporaryFile(
+                mode="w",
+                dir=str(self._path.parent),
+                suffix=".tmp",
+                delete=False,
+                encoding="utf-8",
+            )
+            try:
+                json.dump(existing, fd, ensure_ascii=False, indent=2)
+                fd.flush()
+                os.fsync(fd.fileno())
+                fd.close()
+                os.replace(fd.name, str(self._path))
+            except BaseException:
+                fd.close()
+                try:
+                    os.unlink(fd.name)
+                except OSError:
+                    pass
+                raise
+
 
 # Module-level singleton
 system_config_store = SystemConfigStore()
