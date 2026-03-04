@@ -178,7 +178,7 @@ export default function Generate() {
             )}
 
             {/* Pipeline config (collapsed) */}
-            <PipelineConfigBar value={pipelineConfig} onChange={setPipelineConfig} />
+            <PipelineConfigBar value={pipelineConfig} onChange={setPipelineConfig} inputType={workflow.inputType} />
           </Space>
         </Col>
 

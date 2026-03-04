@@ -6,6 +6,7 @@ The registry is then consumed by DependencyResolver and PipelineBuilder.
 
 from __future__ import annotations
 
+import copy
 import functools
 import logging
 import re
@@ -157,6 +158,7 @@ def enhance_config_schema(schema: dict[str, Any]) -> dict[str, Any]:
     Pydantic v2 natively handles description, minimum/maximum, and json_schema_extra
     (including x-group), so this function only adds x-sensitive auto-detection.
     """
+    schema = copy.deepcopy(schema)
     props = schema.get("properties", {})
     for field_name, field_schema in props.items():
         if _SENSITIVE_PATTERN.search(field_name):

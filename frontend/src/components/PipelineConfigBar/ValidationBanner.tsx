@@ -46,6 +46,7 @@ export default function ValidationBanner({ config, inputType }: ValidationBanner
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
+      abortRef.current?.abort();
     };
   }, [config, inputType]);
 

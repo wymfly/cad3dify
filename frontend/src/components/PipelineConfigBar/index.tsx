@@ -53,11 +53,12 @@ const DEFAULT_CONFIG: NodeLevelPipelineConfig = {
 export interface PipelineConfigBarProps {
   value?: NodeLevelPipelineConfig;
   onChange?: (config: NodeLevelPipelineConfig) => void;
+  inputType?: string | null;
 }
 
 export { DEFAULT_CONFIG };
 
-export default function PipelineConfigBar({ value, onChange: onExternalChange }: PipelineConfigBarProps) {
+export default function PipelineConfigBar({ value, onChange: onExternalChange, inputType }: PipelineConfigBarProps) {
   const [internalConfig, setInternalConfig] = useState<NodeLevelPipelineConfig>(DEFAULT_CONFIG);
   const config = value ?? internalConfig;
   const [presets, setPresets] = useState<NodeLevelPreset[]>(FALLBACK_PRESETS);
@@ -106,7 +107,7 @@ export default function PipelineConfigBar({ value, onChange: onExternalChange }:
         value={config.preset}
         onChange={handlePresetChange}
       />
-      <ValidationBanner config={config.nodeConfig} />
+      <ValidationBanner config={config.nodeConfig} inputType={inputType} />
       {descriptors.length > 0 && (
         <Collapse
           activeKey={customExpanded ? ['custom'] : []}

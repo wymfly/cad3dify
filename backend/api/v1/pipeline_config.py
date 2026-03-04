@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Request, Response
 
 from backend.models.pipeline_config import PRESETS, get_tooltips
 
@@ -13,29 +12,19 @@ router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
 
 @router.get("/tooltips")
-async def get_pipeline_tooltips() -> JSONResponse:
-    data = {k: v.model_dump() for k, v in get_tooltips().items()}
-    return JSONResponse(
-        content=data,
-        headers={
-            "Deprecation": "true",
-            "Sunset": "2026-06-01",
-            "Link": '</api/v1/pipeline/nodes>; rel="successor-version"',
-        },
-    )
+async def get_pipeline_tooltips(response: Response) -> dict[str, Any]:
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "2026-06-01"
+    response.headers["Link"] = '</api/v1/pipeline/nodes>; rel="successor-version"'
+    return {k: v.model_dump() for k, v in get_tooltips().items()}
 
 
 @router.get("/presets")
-async def get_pipeline_presets() -> JSONResponse:
-    data = [{"name": k, **v.model_dump()} for k, v in PRESETS.items()]
-    return JSONResponse(
-        content=data,
-        headers={
-            "Deprecation": "true",
-            "Sunset": "2026-06-01",
-            "Link": '</api/v1/pipeline/node-presets>; rel="successor-version"',
-        },
-    )
+async def get_pipeline_presets(response: Response) -> list[dict[str, Any]]:
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "2026-06-01"
+    response.headers["Link"] = '</api/v1/pipeline/node-presets>; rel="successor-version"'
+    return [{"name": k, **v.model_dump()} for k, v in PRESETS.items()]
 
 
 @router.get("/nodes")
@@ -148,7 +137,7 @@ async def get_strategy_availability() -> dict[str, Any]:
         strat_status: dict[str, dict[str, Any]] = {}
         for strat_name, strat_cls in desc.strategies.items():
             try:
-                config = desc.config_model() if desc.config_model else None
+                config = desc.config_model.model_construct() if desc.config_model else None
                 instance = strat_cls(config=config)
                 available = instance.check_available()
                 entry: dict[str, Any] = {"available": available}

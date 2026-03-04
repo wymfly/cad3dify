@@ -646,8 +646,32 @@ async def confirm_job(job_id: str, body: ConfirmRequest, request: Request) -> Ev
             "disclaimer_accepted": body.disclaimer_accepted,
         },
     }
-    # Include pipeline config updates for confirm_with_user_node to merge
-    if body.pipeline_config_updates:
+    # Validate and include pipeline config updates
+    if body.pipeline_config_updates is not None:
+        from backend.graph.discovery import discover_nodes
+        from backend.graph.registry import registry
+        from backend.graph.resolver import DependencyResolver
+
+        discover_nodes()
+        merged_config = {**job.pipeline_config} if job.pipeline_config else {}
+        for node_name, updates in body.pipeline_config_updates.items():
+            merged_config.setdefault(node_name, {}).update(updates)
+        try:
+            resolved = DependencyResolver.resolve(
+                registry, merged_config, job.input_type, include_disabled=False,
+            )
+            if not resolved.ordered_nodes:
+                raise APIError(
+                    status_code=400,
+                    code=ErrorCode.VALIDATION_FAILED,
+                    message="pipeline_config_updates 无效：至少需要启用一个节点",
+                )
+        except (ValueError, KeyError, TypeError) as exc:
+            raise APIError(
+                status_code=400,
+                code=ErrorCode.VALIDATION_FAILED,
+                message=f"pipeline_config_updates 验证失败: {exc}",
+            ) from exc
         resume_data["pipeline_config_updates"] = body.pipeline_config_updates
 
     if is_organic and body.confirmed_spec:
