@@ -162,7 +162,10 @@ export function useGenerateWorkflow() {
   }, []);
 
   const confirmParams = useCallback(
-    async (confirmedParams: Record<string, number>) => {
+    async (
+      confirmedParams: Record<string, number>,
+      pipelineConfigUpdates?: Record<string, Record<string, unknown>>,
+    ) => {
       if (!state.jobId) return;
 
       const abort = new AbortController();
@@ -175,10 +178,14 @@ export function useGenerateWorkflow() {
       }));
 
       try {
+        const body: Record<string, unknown> = { confirmed_params: confirmedParams };
+        if (pipelineConfigUpdates) {
+          body.pipeline_config_updates = pipelineConfigUpdates;
+        }
         const resp = await fetch(`/api/v1/jobs/${state.jobId}/confirm`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ confirmed_params: confirmedParams }),
+          body: JSON.stringify(body),
           signal: abort.signal,
         });
 
@@ -253,7 +260,11 @@ export function useGenerateWorkflow() {
   }, []);
 
   const confirmDrawingSpec = useCallback(
-    async (confirmedSpec: DrawingSpec, disclaimerAccepted: boolean) => {
+    async (
+      confirmedSpec: DrawingSpec,
+      disclaimerAccepted: boolean,
+      pipelineConfigUpdates?: Record<string, Record<string, unknown>>,
+    ) => {
       if (!state.jobId) return;
 
       const abort = new AbortController();
@@ -266,13 +277,17 @@ export function useGenerateWorkflow() {
       }));
 
       try {
+        const body: Record<string, unknown> = {
+          confirmed_spec: confirmedSpec,
+          disclaimer_accepted: disclaimerAccepted,
+        };
+        if (pipelineConfigUpdates) {
+          body.pipeline_config_updates = pipelineConfigUpdates;
+        }
         const resp = await fetch(`/api/v1/jobs/${state.jobId}/confirm`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            confirmed_spec: confirmedSpec,
-            disclaimer_accepted: disclaimerAccepted,
-          }),
+          body: JSON.stringify(body),
           signal: abort.signal,
         });
 
