@@ -4,6 +4,7 @@ const { Text } = Typography;
 
 interface JsonSchemaProperty {
   type?: string;
+  anyOf?: Array<{ type?: string }>;
   description?: string;
   minimum?: number;
   maximum?: number;
@@ -11,6 +12,7 @@ interface JsonSchemaProperty {
   default?: unknown;
   'x-sensitive'?: boolean;
   'x-group'?: string;
+  'x-scope'?: string;
 }
 
 interface SchemaFormProps {
@@ -20,10 +22,28 @@ interface SchemaFormProps {
   };
   value: Record<string, unknown>;
   onChange: (value: Record<string, unknown>) => void;
+  scope?: 'engineering' | 'system' | 'all';
 }
 
 /** Fields handled by NodeConfigCard header — skip in SchemaForm */
 const SKIP_FIELDS = new Set(['enabled', 'strategy']);
+
+/** Convert snake_case to human-readable label */
+function humanize(name: string): string {
+  return name
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Resolve Pydantic v2 anyOf types (e.g. str | None → "string") */
+function resolveType(prop: JsonSchemaProperty): string | undefined {
+  if (prop.type) return prop.type;
+  if (prop.anyOf) {
+    const types = prop.anyOf.map((s) => s.type).filter((t) => t && t !== 'null');
+    return types[0];
+  }
+  return undefined;
+}
 
 function renderField(
   name: string,
@@ -37,14 +57,16 @@ function renderField(
       <Input.Password
         value={(value as string) ?? (prop.default as string) ?? ''}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={prop.description}
+        placeholder={prop.description ?? humanize(name)}
         size="small"
       />
     );
   }
 
+  const type = resolveType(prop);
+
   // Boolean → Switch
-  if (prop.type === 'boolean') {
+  if (type === 'boolean') {
     return (
       <Switch
         size="small"
@@ -55,13 +77,13 @@ function renderField(
   }
 
   // Integer/Number with min+max → Slider
-  if ((prop.type === 'integer' || prop.type === 'number') &&
+  if ((type === 'integer' || type === 'number') &&
       prop.minimum != null && prop.maximum != null) {
     return (
       <Slider
         min={prop.minimum}
         max={prop.maximum}
-        step={prop.type === 'number' ? (prop.maximum! - prop.minimum!) / 100 : 1}
+        step={type === 'number' ? (prop.maximum! - prop.minimum!) / 100 : 1}
         value={(value as number) ?? (prop.default as number) ?? prop.minimum}
         onChange={onChange}
       />
@@ -69,7 +91,7 @@ function renderField(
   }
 
   // Integer/Number without range → InputNumber
-  if (prop.type === 'integer' || prop.type === 'number') {
+  if (type === 'integer' || type === 'number') {
     return (
       <InputNumber
         size="small"
@@ -83,44 +105,52 @@ function renderField(
   }
 
   // String with enum → Select
-  if (prop.type === 'string' && prop.enum) {
+  if (type === 'string' && prop.enum) {
     return (
       <Select
         size="small"
         value={(value as string) ?? (prop.default as string) ?? prop.enum[0]}
         onChange={onChange}
-        options={prop.enum.map((e) => ({ label: e, value: e }))}
+        options={prop.enum.map((e) => ({ label: humanize(e), value: e }))}
         style={{ width: '100%' }}
       />
     );
   }
 
   // String without enum → Input
-  if (prop.type === 'string') {
+  if (type === 'string') {
     return (
       <Input
         size="small"
         value={(value as string) ?? (prop.default as string) ?? ''}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={prop.description}
+        placeholder={prop.description ?? humanize(name)}
       />
     );
   }
 
-  // Unsupported (object, array, etc.) → read-only JSON
+  // Unsupported (object, array, null, etc.) → placeholder
+  if (value == null && prop.default == null) {
+    return <Text type="secondary" style={{ fontSize: 11, fontStyle: 'italic' }}>未设置</Text>;
+  }
+
   return (
-    <Text type="secondary" code style={{ fontSize: 12 }}>
-      {JSON.stringify(value ?? prop.default ?? null)}
+    <Text type="secondary" style={{ fontSize: 11 }}>
+      {JSON.stringify(value ?? prop.default)}
     </Text>
   );
 }
 
-export default function SchemaForm({ schema, value, onChange }: SchemaFormProps) {
+export default function SchemaForm({ schema, value, onChange, scope = 'engineering' }: SchemaFormProps) {
   const properties = schema.properties ?? {};
   const requiredFields = new Set((schema.required as string[] | undefined) ?? []);
 
-  // Filter and group
-  const fields = Object.entries(properties).filter(([name]) => !SKIP_FIELDS.has(name));
+  const fields = Object.entries(properties).filter(([name, prop]) => {
+    if (SKIP_FIELDS.has(name)) return false;
+    if (scope === 'all') return true;
+    const fieldScope = prop['x-scope'] ?? 'engineering';
+    return fieldScope === scope;
+  });
 
   // Group by x-group
   const groups: Record<string, [string, JsonSchemaProperty][]> = {};
@@ -137,22 +167,22 @@ export default function SchemaForm({ schema, value, onChange }: SchemaFormProps)
   if (fields.length === 0) return null;
 
   return (
-    <div style={{ padding: '8px 0' }}>
+    <div style={{ padding: '4px 0' }}>
       {Object.entries(groups).map(([group, groupFields]) => (
         <div key={group}>
           {group !== '_default' && (
-            <Divider orientation="left" plain style={{ margin: '8px 0', fontSize: 12 }}>
+            <Divider orientation="left" plain style={{ margin: '4px 0', fontSize: 11 }}>
               {group}
             </Divider>
           )}
           {groupFields.map(([name, prop]) => (
-            <div key={name} style={{ marginBottom: 8 }}>
+            <div key={name} style={{ marginBottom: 6 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <Text style={{ fontSize: 12, flex: '0 0 auto' }}>
+                <Text type="secondary" style={{ fontSize: 11, flex: '0 0 auto' }}>
                   {requiredFields.has(name) && <span style={{ color: '#ff4d4f', marginRight: 2 }}>*</span>}
-                  {prop.description ?? name}
+                  {prop.description ?? humanize(name)}
                 </Text>
-                <div style={{ flex: 1, maxWidth: 200 }}>
+                <div style={{ flex: 1, maxWidth: 180 }}>
                   {renderField(name, prop, value[name], (v) => handleChange(name, v))}
                 </div>
               </div>
