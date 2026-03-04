@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Card, Collapse } from 'antd';
 import PresetSelector from './PresetSelector.tsx';
 import CustomPanel from './CustomPanel.tsx';
+import ValidationBanner from './ValidationBanner.tsx';
 import { getNodePresets, getPipelineNodes, getStrategyAvailability } from '../../services/api.ts';
 import type { PipelineNodeDescriptor, NodeLevelConfig, NodeLevelPreset, StrategyAvailabilityMap } from '../../types/pipeline.ts';
 
@@ -105,6 +106,7 @@ export default function PipelineConfigBar({ value, onChange: onExternalChange }:
         value={config.preset}
         onChange={handlePresetChange}
       />
+      <ValidationBanner config={config.nodeConfig} />
       {descriptors.length > 0 && (
         <Collapse
           activeKey={customExpanded ? ['custom'] : []}
