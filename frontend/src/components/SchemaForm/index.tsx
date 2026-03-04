@@ -61,6 +61,7 @@ function renderField(
       <Slider
         min={prop.minimum}
         max={prop.maximum}
+        step={prop.type === 'number' ? (prop.maximum! - prop.minimum!) / 100 : 1}
         value={(value as number) ?? (prop.default as number) ?? prop.minimum}
         onChange={onChange}
       />

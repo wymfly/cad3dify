@@ -653,8 +653,10 @@ async def confirm_job(job_id: str, body: ConfirmRequest, request: Request) -> Ev
         from backend.graph.resolver import DependencyResolver
 
         discover_nodes()
-        # Job model doesn't store pipeline_config; start from empty baseline.
-        # The resolver validates topology regardless of baseline.
+        # NOTE: Job ORM doesn't persist pipeline_config (it lives in LangGraph
+        # graph state).  We validate updates against an empty baseline here,
+        # which catches gross errors (e.g. all nodes disabled).  The full
+        # merged config is validated at runtime by confirm_with_user_node.
         merged_config: dict[str, dict] = {}
         for node_name, updates in body.pipeline_config_updates.items():
             merged_config.setdefault(node_name, {}).update(updates)
