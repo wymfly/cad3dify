@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import APIRouter, Request, Response
 
+from backend.graph.system_config import system_config_store
 from backend.models.pipeline_config import PRESETS, get_tooltips
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
@@ -145,3 +147,109 @@ async def get_strategy_availability() -> dict[str, Any]:
         result[name] = strat_status
 
     return result
+
+
+@router.get("/system-config-schema")
+async def get_system_config_schema() -> dict[str, Any]:
+    """返回每个节点的 system scope 字段 schema。"""
+    from backend.graph.registry import registry, enhance_config_schema
+
+    result: dict[str, Any] = {}
+    for name, desc in registry.all().items():
+        if not desc.config_model:
+            continue
+        schema = enhance_config_schema(desc.config_model.model_json_schema())
+        props = schema.get("properties", {})
+        system_props = {
+            k: v for k, v in props.items()
+            if v.get("x-scope") == "system"
+        }
+        if system_props:
+            required = [r for r in schema.get("required", []) if r in system_props]
+            node_schema: dict[str, Any] = {"properties": system_props}
+            if required:
+                node_schema["required"] = required
+            result[name] = node_schema
+    return result
+
+
+@router.get("/system-config")
+async def get_system_config() -> dict[str, Any]:
+    """返回当前系统配置值（x-sensitive 字段做掩码）。"""
+    from backend.graph.registry import registry, enhance_config_schema
+
+    raw = system_config_store.load()
+
+    # Build sensitive field set for masking
+    sensitive_fields: dict[str, set[str]] = {}
+    for name, desc in registry.all().items():
+        if not desc.config_model:
+            continue
+        schema = enhance_config_schema(desc.config_model.model_json_schema())
+        s_fields = set()
+        for fname, fschema in schema.get("properties", {}).items():
+            if fschema.get("x-sensitive"):
+                s_fields.add(fname)
+        if s_fields:
+            sensitive_fields[name] = s_fields
+
+    # Mask sensitive values
+    masked: dict[str, Any] = {}
+    for node_name, node_config in raw.items():
+        masked_node: dict[str, Any] = {}
+        s_set = sensitive_fields.get(node_name, set())
+        for k, v in node_config.items():
+            if k in s_set and isinstance(v, str) and len(v) > 4:
+                masked_node[k] = v[:3] + "****" + v[-4:]
+            else:
+                masked_node[k] = v
+        masked[node_name] = masked_node
+    return masked
+
+
+@router.put("/system-config")
+async def update_system_config(request: Request) -> Any:
+    """保存系统配置（仅接受 system scope 字段，做类型验证）。"""
+    from backend.graph.registry import registry, enhance_config_schema
+
+    try:
+        body = await request.json()
+    except Exception:
+        return Response(
+            status_code=400,
+            content='{"error":"Invalid JSON"}',
+            media_type="application/json",
+        )
+
+    # Validate: only system-scope fields allowed
+    for node_name, node_config in body.items():
+        try:
+            desc = registry.get(node_name)
+        except KeyError:
+            return Response(
+                status_code=400,
+                content=json.dumps({"error": f"Unknown node: {node_name}"}),
+                media_type="application/json",
+            )
+        if not desc.config_model:
+            return Response(
+                status_code=400,
+                content=json.dumps({"error": f"Node '{node_name}' has no config model"}),
+                media_type="application/json",
+            )
+        schema = enhance_config_schema(desc.config_model.model_json_schema())
+        props = schema.get("properties", {})
+        for field_name in node_config:
+            field_schema = props.get(field_name, {})
+            if field_schema.get("x-scope") != "system":
+                return Response(
+                    status_code=400,
+                    content=json.dumps({"error": f"field '{field_name}' is not a system-scope field"}),
+                    media_type="application/json",
+                )
+
+    # Merge with existing (replace semantics per node)
+    existing = system_config_store.load()
+    existing.update(body)
+    system_config_store.save(existing)
+    return {"ok": True}
