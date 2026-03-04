@@ -118,6 +118,17 @@ class PipelineBuilder:
                 "timestamp": t0,
             })
 
+            # Runtime skip: check if node is disabled in pipeline_config
+            node_cfg = state.get("pipeline_config", {}).get(desc.name, {})
+            if not node_cfg.get("enabled", True):
+                logger.info("Node %s skipped (disabled)", desc.name)
+                await _safe_dispatch("node.skipped", {
+                    "job_id": job_id,
+                    "node": desc.name,
+                    "reason": "disabled",
+                })
+                return {}
+
             try:
                 ctx = NodeContext.from_state(state, desc)
                 result = await desc.fn(ctx)
