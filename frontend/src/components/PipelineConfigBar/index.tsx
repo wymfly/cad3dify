@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { Card, Collapse } from 'antd';
 import PresetSelector from './PresetSelector.tsx';
 import CustomPanel from './CustomPanel.tsx';
-import { getNodePresets, getPipelineNodes } from '../../services/api.ts';
-import type { PipelineNodeDescriptor, NodeLevelConfig, NodeLevelPreset } from '../../types/pipeline.ts';
+import { getNodePresets, getPipelineNodes, getStrategyAvailability } from '../../services/api.ts';
+import type { PipelineNodeDescriptor, NodeLevelConfig, NodeLevelPreset, StrategyAvailabilityMap } from '../../types/pipeline.ts';
 
 /** Default presets used when API is unavailable */
 const FALLBACK_PRESETS: NodeLevelPreset[] = [
@@ -62,6 +62,7 @@ export default function PipelineConfigBar({ value, onChange: onExternalChange }:
   const [presets, setPresets] = useState<NodeLevelPreset[]>(FALLBACK_PRESETS);
   const [descriptors, setDescriptors] = useState<PipelineNodeDescriptor[]>([]);
   const [customExpanded, setCustomExpanded] = useState(false);
+  const [strategyAvailability, setStrategyAvailability] = useState<StrategyAvailabilityMap>({});
 
   useEffect(() => {
     getNodePresets()
@@ -70,6 +71,9 @@ export default function PipelineConfigBar({ value, onChange: onExternalChange }:
     getPipelineNodes()
       .then(setDescriptors)
       .catch(() => { /* No descriptors — custom panel stays empty */ });
+    getStrategyAvailability()
+      .then(setStrategyAvailability)
+      .catch(() => { /* Strategy availability unavailable — degrade gracefully */ });
   }, []);
 
   const updateConfig = useCallback((newConfig: NodeLevelPipelineConfig) => {
@@ -116,6 +120,7 @@ export default function PipelineConfigBar({ value, onChange: onExternalChange }:
                   descriptors={descriptors}
                   config={config.nodeConfig}
                   onChange={handleCustomChange}
+                  strategyAvailability={strategyAvailability}
                 />
               ),
             },

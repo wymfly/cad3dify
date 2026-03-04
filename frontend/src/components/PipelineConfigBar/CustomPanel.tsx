@@ -1,6 +1,6 @@
-import { Switch, Select, Space, Row, Col, Typography, Tag } from 'antd';
-import { useDesignTokens } from '../../theme/useDesignTokens.ts';
-import type { PipelineNodeDescriptor, NodeLevelConfig } from '../../types/pipeline.ts';
+import { Switch, Select, Collapse, Tag, Tooltip, Space, Typography } from 'antd';
+import SchemaForm from '../SchemaForm/index.tsx';
+import type { PipelineNodeDescriptor, NodeLevelConfig, StrategyAvailabilityMap } from '../../types/pipeline.ts';
 
 const { Text } = Typography;
 
@@ -8,17 +8,11 @@ interface CustomPanelProps {
   descriptors: PipelineNodeDescriptor[];
   config: Record<string, NodeLevelConfig>;
   onChange: (nodeConfig: Record<string, NodeLevelConfig>) => void;
+  strategyAvailability?: StrategyAvailabilityMap;
 }
 
 /** Nodes that are always enabled and cannot be toggled */
 const NON_TOGGLEABLE = new Set(['create_job', 'confirm_with_user', 'finalize']);
-
-/** Group label mapping */
-const GROUP_LABELS: Record<string, string> = {
-  analysis: '分析',
-  generation: '生成',
-  postprocess: '后处理',
-};
 
 function inferGroup(desc: PipelineNodeDescriptor): string {
   if (desc.is_entry || desc.is_terminal || desc.supports_hitl) return 'system';
@@ -27,17 +21,12 @@ function inferGroup(desc: PipelineNodeDescriptor): string {
   return 'postprocess';
 }
 
-export default function CustomPanel({ descriptors, config, onChange }: CustomPanelProps) {
-  const dt = useDesignTokens();
-  // Group configurable nodes
-  const groups: Record<string, PipelineNodeDescriptor[]> = {};
-  for (const desc of descriptors) {
-    const group = inferGroup(desc);
-    if (group === 'system') continue; // skip non-configurable nodes
-    if (!groups[group]) groups[group] = [];
-    groups[group].push(desc);
-  }
-
+export default function CustomPanel({
+  descriptors,
+  config,
+  onChange,
+  strategyAvailability,
+}: CustomPanelProps) {
   const handleToggle = (nodeName: string, enabled: boolean) => {
     const updated = { ...config };
     updated[nodeName] = { ...updated[nodeName], enabled };
@@ -50,57 +39,96 @@ export default function CustomPanel({ descriptors, config, onChange }: CustomPan
     onChange(updated);
   };
 
-  return (
-    <div style={{ padding: '12px 0' }}>
-      {Object.entries(groups).map(([group, nodes]) => (
-        <div key={group} style={{ marginBottom: 16 }}>
-          <Text strong style={{ display: 'block', marginBottom: 8, color: dt.color.textSecondary }}>
-            {GROUP_LABELS[group] ?? group}
-          </Text>
-          <Row gutter={[16, 12]}>
-            {nodes.map((desc) => {
-              const nodeConf = config[desc.name] ?? {};
-              const enabled = nodeConf.enabled !== false;
-              const canToggle = !NON_TOGGLEABLE.has(desc.name);
+  const handleParams = (nodeName: string, params: Record<string, unknown>) => {
+    const updated = { ...config };
+    updated[nodeName] = { ...updated[nodeName], ...params };
+    onChange(updated);
+  };
 
-              return (
-                <Col key={desc.name} span={24}>
-                  <Space size={8} align="start" style={{ width: '100%' }}>
-                    {canToggle && (
-                      <Switch
-                        size="small"
-                        checked={enabled}
-                        onChange={(val) => handleToggle(desc.name, val)}
-                      />
-                    )}
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Text style={{ opacity: enabled ? 1 : 0.5 }}>
-                          {desc.display_name}
-                        </Text>
-                        {desc.non_fatal && (
-                          <Tag color="default" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
-                            可选
-                          </Tag>
-                        )}
-                      </div>
-                      {desc.strategies.length > 1 && enabled && (
-                        <Select
-                          size="small"
-                          value={nodeConf.strategy ?? desc.default_strategy ?? desc.strategies[0]}
-                          onChange={(val) => handleStrategy(desc.name, val)}
-                          options={desc.strategies.map((s) => ({ label: s, value: s }))}
-                          style={{ width: '100%', marginTop: 4 }}
-                        />
-                      )}
-                    </div>
-                  </Space>
-                </Col>
-              );
-            })}
-          </Row>
+  // Filter out system nodes
+  const configurable = descriptors.filter((d) => inferGroup(d) !== 'system');
+
+  const items = configurable.map((desc) => {
+    const nodeConf = config[desc.name] ?? {};
+    const enabled = nodeConf.enabled !== false;
+    const canToggle = !NON_TOGGLEABLE.has(desc.name);
+    const availability = strategyAvailability?.[desc.name] ?? {};
+
+    return {
+      key: desc.name,
+      label: (
+        <Space size={8}>
+          {canToggle && (
+            <Switch
+              size="small"
+              checked={enabled}
+              onChange={(val) => { handleToggle(desc.name, val); }}
+              onClick={(_, e) => e.stopPropagation()}
+            />
+          )}
+          <Text style={{ opacity: enabled ? 1 : 0.5 }}>
+            {desc.display_name}
+          </Text>
+          {desc.strategies.length > 1 && enabled && (
+            <Select
+              size="small"
+              value={nodeConf.strategy ?? desc.default_strategy ?? desc.strategies[0]}
+              onChange={(val) => handleStrategy(desc.name, val)}
+              onClick={(e) => e.stopPropagation()}
+              options={desc.strategies.map((s) => {
+                const avail = availability[s];
+                const isAvailable = avail?.available !== false;
+                return {
+                  label: isAvailable ? s : (
+                    <Tooltip title={avail?.reason ?? '不可用'}>
+                      <span style={{ opacity: 0.5 }}>{s}</span>
+                    </Tooltip>
+                  ),
+                  value: s,
+                  disabled: !isAvailable,
+                };
+              })}
+              style={{ minWidth: 120 }}
+            />
+          )}
+          {desc.non_fatal && (
+            <Tag color="default" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
+              可选
+            </Tag>
+          )}
+        </Space>
+      ),
+      children: enabled ? (
+        <div>
+          {desc.fallback_chain && desc.fallback_chain.length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>Fallback: </Text>
+              {desc.fallback_chain.map((s, i) => (
+                <span key={s}>
+                  <Tag color="blue" style={{ fontSize: 11 }}>{s}</Tag>
+                  {i < desc.fallback_chain!.length - 1 && <Text type="secondary">→ </Text>}
+                </span>
+              ))}
+            </div>
+          )}
+          {desc.config_schema && (
+            <SchemaForm
+              schema={desc.config_schema as Record<string, unknown> & { properties?: Record<string, unknown> }}
+              value={nodeConf}
+              onChange={(params) => handleParams(desc.name, params)}
+            />
+          )}
         </div>
-      ))}
-    </div>
+      ) : null,
+      collapsible: enabled ? undefined : ('disabled' as const),
+    };
+  });
+
+  return (
+    <Collapse
+      size="small"
+      items={items}
+      ghost
+    />
   );
 }
