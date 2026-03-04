@@ -139,6 +139,7 @@ class TestValidatePipelineConfig:
     @patch("backend.graph.resolver.DependencyResolver.resolve")
     @patch("backend.graph.discovery.discover_nodes")
     def test_no_input_type(self, mock_discover, mock_resolve, client):
+        """When no input_type and no enabled nodes → valid: False (all-disabled check)."""
         mock_resolved = MagicMock()
         mock_resolved.ordered_nodes = []
         mock_resolved.interrupt_before = []
@@ -147,7 +148,8 @@ class TestValidatePipelineConfig:
         resp = client.post("/api/v1/pipeline/validate", json={"config": {}})
         assert resp.status_code == 200
         data = resp.json()
-        assert data["valid"] is True
+        assert data["valid"] is False
+        assert data["node_count"] == 0
 
 
 # ---------------------------------------------------------------------------

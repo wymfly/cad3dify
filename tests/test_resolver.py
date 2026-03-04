@@ -253,7 +253,8 @@ class TestEnabledFiltering:
             _desc("b", requires=["x"]),
         )
         config = {"b": {"enabled": False}}
-        result = DependencyResolver.resolve(reg, config)
+        # include_disabled=False filters out disabled nodes (used by validate preview)
+        result = DependencyResolver.resolve(reg, config, include_disabled=False)
         names = {d.name for d in result.ordered_nodes}
         assert "a" in names
         assert "b" not in names

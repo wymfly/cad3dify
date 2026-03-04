@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -44,7 +43,7 @@ class TestWrapNodeSkip:
 
         return PipelineBuilder()
 
-    def test_skip_emits_events_and_returns_empty(self, mock_dispatch):
+    async def test_skip_emits_events_and_returns_empty(self, mock_dispatch):
         """Disabled node: emit node.started + node.skipped, return {}, don't execute fn."""
         desc = self._make_desc()
         wrapped = self._make_builder()._wrap_node(desc)
@@ -54,7 +53,7 @@ class TestWrapNodeSkip:
             "pipeline_config": {"test_node": {"enabled": False}},
         }
 
-        result = asyncio.get_event_loop().run_until_complete(wrapped(state))
+        result = await wrapped(state)
 
         assert result == {}
         desc.fn.assert_not_called()
@@ -64,7 +63,7 @@ class TestWrapNodeSkip:
         assert "node.started" in events
         assert "node.skipped" in events
 
-    def test_skip_event_payload(self, mock_dispatch):
+    async def test_skip_event_payload(self, mock_dispatch):
         """node.skipped event includes job_id, node, reason."""
         desc = self._make_desc()
         wrapped = self._make_builder()._wrap_node(desc)
@@ -74,7 +73,7 @@ class TestWrapNodeSkip:
             "pipeline_config": {"test_node": {"enabled": False}},
         }
 
-        asyncio.get_event_loop().run_until_complete(wrapped(state))
+        await wrapped(state)
 
         # Find the node.skipped call
         skipped_call = None
@@ -90,7 +89,7 @@ class TestWrapNodeSkip:
         assert payload["reason"] == "disabled"
 
     @patch("backend.graph.context.NodeContext.from_state")
-    def test_enabled_node_executes_normally(self, mock_ctx_from_state, mock_dispatch):
+    async def test_enabled_node_executes_normally(self, mock_ctx_from_state, mock_dispatch):
         """Enabled node executes fn and returns diff."""
         mock_ctx = MagicMock()
         mock_ctx._fallback_trace = None
@@ -106,7 +105,7 @@ class TestWrapNodeSkip:
             "pipeline_config": {"test_node": {"enabled": True}},
         }
 
-        result = asyncio.get_event_loop().run_until_complete(wrapped(state))
+        result = await wrapped(state)
 
         assert result != {}
         fn.assert_called_once()
@@ -118,7 +117,7 @@ class TestWrapNodeSkip:
         assert "node.skipped" not in events
 
     @patch("backend.graph.context.NodeContext.from_state")
-    def test_default_enabled_when_not_in_config(self, mock_ctx_from_state, mock_dispatch):
+    async def test_default_enabled_when_not_in_config(self, mock_ctx_from_state, mock_dispatch):
         """Node not in pipeline_config defaults to enabled."""
         mock_ctx = MagicMock()
         mock_ctx._fallback_trace = None
@@ -131,13 +130,13 @@ class TestWrapNodeSkip:
 
         state = {"job_id": "j1", "pipeline_config": {}}
 
-        result = asyncio.get_event_loop().run_until_complete(wrapped(state))
+        result = await wrapped(state)
 
         fn.assert_called_once()
         events = [call.args[0] for call in mock_dispatch.call_args_list]
         assert "node.skipped" not in events
 
-    def test_no_pipeline_config_defaults_enabled(self, mock_dispatch):
+    async def test_no_pipeline_config_defaults_enabled(self, mock_dispatch):
         """Missing pipeline_config key entirely defaults to enabled."""
         desc = self._make_desc()
         wrapped = self._make_builder()._wrap_node(desc)
@@ -151,7 +150,7 @@ class TestWrapNodeSkip:
             mock_ctx.return_value = ctx
             desc.fn.return_value = {"out": "val"}
 
-            result = asyncio.get_event_loop().run_until_complete(wrapped(state))
+            result = await wrapped(state)
 
         desc.fn.assert_called_once()
         events = [call.args[0] for call in mock_dispatch.call_args_list]
