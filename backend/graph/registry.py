@@ -150,19 +150,31 @@ def register_node(
 # ---------------------------------------------------------------------------
 
 _SENSITIVE_PATTERN = re.compile(r"(api_key|secret|password)", re.IGNORECASE)
+_SYSTEM_PATTERN = re.compile(
+    r"(_endpoint$|^prusaslicer_path$|^orcaslicer_path$|^neural_enabled$)",
+    re.IGNORECASE,
+)
 
 
 def enhance_config_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Post-process Pydantic v2 JSON schema: inject x-sensitive for sensitive fields.
+    """Post-process Pydantic v2 JSON schema: inject x-sensitive and x-scope.
 
     Pydantic v2 natively handles description, minimum/maximum, and json_schema_extra
     (including x-group and explicit x-sensitive via Field metadata).  This function
     adds x-sensitive auto-detection as a safety net for fields that lack explicit
-    annotation but have sensitive-looking names (api_key, secret, password).
+    annotation but have sensitive-looking names (api_key, secret, password),
+    and x-scope auto-inference for system-level fields.
     """
     schema = copy.deepcopy(schema)
     props = schema.get("properties", {})
     for field_name, field_schema in props.items():
+        # Auto-detect x-sensitive
         if "x-sensitive" not in field_schema and _SENSITIVE_PATTERN.search(field_name):
             field_schema["x-sensitive"] = True
+        # Auto-infer x-scope (only if not explicitly set)
+        if "x-scope" not in field_schema:
+            if field_schema.get("x-sensitive"):
+                field_schema["x-scope"] = "system"
+            elif _SYSTEM_PATTERN.search(field_name):
+                field_schema["x-scope"] = "system"
     return schema

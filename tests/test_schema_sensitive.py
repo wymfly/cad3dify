@@ -143,3 +143,64 @@ class TestXScopeAnnotation:
         schema = SliceToGcodeConfig.model_json_schema()
         for field in ("prusaslicer_path", "orcaslicer_path"):
             assert schema["properties"][field].get("x-scope") == "system", f"{field} missing x-scope"
+
+
+class TestXScopeAutoInference:
+    """enhance_config_schema auto-infers x-scope for system fields."""
+
+    def test_sensitive_field_gets_system_scope(self):
+        schema = {"properties": {
+            "my_api_key": {"type": "string"},
+        }}
+        result = enhance_config_schema(schema)
+        assert result["properties"]["my_api_key"].get("x-sensitive") is True
+        assert result["properties"]["my_api_key"].get("x-scope") == "system"
+
+    def test_endpoint_field_gets_system_scope(self):
+        schema = {"properties": {
+            "custom_endpoint": {"type": "string"},
+        }}
+        result = enhance_config_schema(schema)
+        assert result["properties"]["custom_endpoint"].get("x-scope") == "system"
+
+    def test_neural_enabled_gets_system_scope(self):
+        schema = {"properties": {
+            "neural_enabled": {"type": "boolean"},
+        }}
+        result = enhance_config_schema(schema)
+        assert result["properties"]["neural_enabled"].get("x-scope") == "system"
+
+    def test_cli_path_gets_system_scope(self):
+        schema = {"properties": {
+            "prusaslicer_path": {"type": "string"},
+            "orcaslicer_path": {"type": "string"},
+        }}
+        result = enhance_config_schema(schema)
+        assert result["properties"]["prusaslicer_path"].get("x-scope") == "system"
+        assert result["properties"]["orcaslicer_path"].get("x-scope") == "system"
+
+    def test_generic_path_not_auto_inferred(self):
+        """model_path, export_path should NOT be auto-inferred as system."""
+        schema = {"properties": {
+            "model_path": {"type": "string"},
+            "export_path": {"type": "string"},
+        }}
+        result = enhance_config_schema(schema)
+        assert "x-scope" not in result["properties"]["model_path"]
+        assert "x-scope" not in result["properties"]["export_path"]
+
+    def test_explicit_scope_not_overridden(self):
+        schema = {"properties": {
+            "custom_endpoint": {"type": "string", "x-scope": "engineering"},
+        }}
+        result = enhance_config_schema(schema)
+        assert result["properties"]["custom_endpoint"]["x-scope"] == "engineering"
+
+    def test_engineering_field_no_scope(self):
+        schema = {"properties": {
+            "timeout": {"type": "integer"},
+            "layer_height": {"type": "number"},
+        }}
+        result = enhance_config_schema(schema)
+        assert "x-scope" not in result["properties"]["timeout"]
+        assert "x-scope" not in result["properties"]["layer_height"]
