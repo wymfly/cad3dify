@@ -93,7 +93,15 @@ async def validate_pipeline_config(request: Request) -> dict[str, Any]:
         return {"valid": False, "error": "config must be a JSON object"}
 
     try:
-        resolved = DependencyResolver.resolve(registry, config, input_type)
+        resolved = DependencyResolver.resolve(
+            registry, config, input_type, include_disabled=False,
+        )
+        if not resolved.ordered_nodes:
+            return {
+                "valid": False,
+                "error": "至少需要启用一个节点",
+                "node_count": 0,
+            }
         return {
             "valid": True,
             "node_count": len(resolved.ordered_nodes),
@@ -102,3 +110,10 @@ async def validate_pipeline_config(request: Request) -> dict[str, Any]:
         }
     except (ValueError, KeyError, TypeError) as exc:
         return {"valid": False, "error": str(exc)}
+
+
+@router.get("/strategy-availability")
+async def get_strategy_availability() -> dict[str, Any]:
+    """返回各节点策略的运行时可用性。(T2 实现)"""
+    # Placeholder — T2 agent will implement
+    raise NotImplementedError("Phase 1 T2 will implement")

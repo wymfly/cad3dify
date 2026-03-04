@@ -48,16 +48,23 @@ class DependencyResolver:
         reg: NodeRegistry,
         pipeline_config: dict[str, dict],
         input_type: str | None = None,
+        *,
+        include_disabled: bool = True,
     ) -> ResolvedPipeline:
         """Resolve the full pipeline for the given input_type.
 
         Steps:
-        1. Filter: enabled + input_type match
+        1. Filter: enabled (if include_disabled=False) + input_type match
         2. Build asset→producers mapping (detect conflicts)
         3. Build adjacency from requires/produces
         4. Connect leaf nodes → terminal nodes
         5. Kahn topological sort
         6. Collect HITL interrupt_before list
+
+        Args:
+            include_disabled: If True (default), all nodes are included regardless
+                of enabled state — used for graph compilation. If False, disabled
+                nodes are filtered out — used for validate preview topology.
         """
         all_nodes = reg.all()
 
@@ -65,7 +72,7 @@ class DependencyResolver:
         candidates: dict[str, NodeDescriptor] = {}
         for name, desc in all_nodes.items():
             node_config = pipeline_config.get(name, {})
-            if not node_config.get("enabled", True):
+            if not include_disabled and not node_config.get("enabled", True):
                 continue
             if input_type and input_type not in desc.input_types:
                 continue
