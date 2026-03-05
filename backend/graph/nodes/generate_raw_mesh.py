@@ -1,9 +1,7 @@
 """generate_raw_mesh — strategized 3D mesh generation node.
 
-Strategy-based node supporting 4 models: Hunyuan3D, Tripo3D, SPAR3D, TRELLIS.
-
-Each model is a separate strategy with dual deployment support
-(SaaS API and/or local HTTP endpoint).
+Strategy-based node supporting 3 local GPU server models:
+TripoSG (default), TRELLIS.2, Hunyuan3D-2.1.
 """
 
 from __future__ import annotations
@@ -14,11 +12,16 @@ from backend.graph.configs.generate_raw_mesh import GenerateRawMeshConfig
 from backend.graph.context import NodeContext
 from backend.graph.registry import register_node
 from backend.graph.strategies.generate.hunyuan3d import Hunyuan3DGenerateStrategy
-from backend.graph.strategies.generate.spar3d import SPAR3DGenerateStrategy
-from backend.graph.strategies.generate.trellis import TRELLISGenerateStrategy
-from backend.graph.strategies.generate.tripo3d import Tripo3DGenerateStrategy
+from backend.graph.strategies.generate.trellis2 import TRELLIS2GenerateStrategy
+from backend.graph.strategies.generate.triposg import TripoSGGenerateStrategy
 
 logger = logging.getLogger(__name__)
+
+_STRATEGIES = {
+    "triposg": TripoSGGenerateStrategy,
+    "trellis2": TRELLIS2GenerateStrategy,
+    "hunyuan3d": Hunyuan3DGenerateStrategy,
+}
 
 
 @register_node(
@@ -28,25 +31,19 @@ logger = logging.getLogger(__name__)
     produces=["raw_mesh"],
     input_types=["organic"],
     config_model=GenerateRawMeshConfig,
-    strategies={
-        "hunyuan3d": Hunyuan3DGenerateStrategy,
-        "tripo3d": Tripo3DGenerateStrategy,
-        "spar3d": SPAR3DGenerateStrategy,
-        "trellis": TRELLISGenerateStrategy,
-    },
-    fallback_chain=["hunyuan3d", "tripo3d", "spar3d", "trellis"],
-    default_strategy="hunyuan3d",
-    description="通过 3D 生成模型创建原始网格，支持 4 种模型策略 + 自动 fallback",
+    strategies=_STRATEGIES,
+    default_strategy="triposg",
+    description="通过本地 GPU 服务器 3D 生成模型创建原始网格",
 )
 async def generate_raw_mesh_node(ctx: NodeContext) -> None:
     """Execute 3D mesh generation via strategy dispatch.
 
-    For auto mode, uses ctx.execute_with_fallback() which iterates
-    fallback_chain (hunyuan3d -> tripo3d -> spar3d -> trellis).
-    For explicit strategy, calls get_strategy().execute() directly.
+    - "auto" -> remapped to "triposg" (default strategy)
+    - Explicit strategy name -> direct dispatch
+    - No fallback_chain — user explicitly chooses, failure = error
     """
     if ctx.config.strategy == "auto":
-        await ctx.execute_with_fallback()
-    else:
-        strategy = ctx.get_strategy()
-        await strategy.execute(ctx)
+        ctx.config.strategy = "triposg"
+
+    strategy = ctx.get_strategy()
+    await strategy.execute(ctx)

@@ -10,38 +10,29 @@ from backend.graph.configs.base import BaseNodeConfig
 class GenerateRawMeshConfig(BaseNodeConfig):
     """generate_raw_mesh node configuration.
 
-    Supports 4 model strategies with dual deployment:
-    - hunyuan3d: SaaS + local
-    - tripo3d: SaaS only
-    - spar3d: local only
-    - trellis: local only
+    Supports 3 local GPU server strategies:
+    - triposg (default): SDF-based, watertight, fastest
+    - trellis2: SLat-based, texture support
+    - hunyuan3d: Hybrid, high detail
     """
 
-    strategy: str = "hunyuan3d"
+    strategy: str = "triposg"
 
-    # Hunyuan3D (SaaS + local)
-    hunyuan3d_api_key: str | None = Field(
-        default=None, json_schema_extra={"x-sensitive": True, "x-scope": "system"},
+    # TripoSG (local, :8081)
+    triposg_endpoint: str | None = Field(
+        default=None, json_schema_extra={"x-scope": "system"},
     )
+
+    # TRELLIS.2 (local, :8082)
+    trellis2_endpoint: str | None = Field(
+        default=None, json_schema_extra={"x-scope": "system"},
+    )
+
+    # Hunyuan3D-2.1 (local, :8080)
     hunyuan3d_endpoint: str | None = Field(
         default=None, json_schema_extra={"x-scope": "system"},
     )
 
-    # Tripo3D (SaaS only)
-    tripo3d_api_key: str | None = Field(
-        default=None, json_schema_extra={"x-sensitive": True, "x-scope": "system"},
-    )
-
-    # SPAR3D (local only)
-    spar3d_endpoint: str | None = Field(
-        default=None, json_schema_extra={"x-scope": "system"},
-    )
-
-    # TRELLIS (local only)
-    trellis_endpoint: str | None = Field(
-        default=None, json_schema_extra={"x-scope": "system"},
-    )
-
     # Common
-    timeout: int = 120
+    timeout: int = 330  # GPU server 300s + 30s network margin
     output_format: str = "glb"
