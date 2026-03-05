@@ -2,11 +2,13 @@
 
 A Job tracks the lifecycle of a single generate request:
 CREATED → INTENT_PARSED → AWAITING_CONFIRMATION → GENERATING → REFINING → COMPLETED
-                                                                          ↗
-                                              VALIDATION_FAILED → (retry or abort)
+                                                        ↕                    ↗
+                                                    BREAKPOINT    VALIDATION_FAILED → (retry or abort)
 
 Drawing path adds an intermediate step:
 CREATED → AWAITING_DRAWING_CONFIRMATION → GENERATING → REFINING → COMPLETED
+                                               ↕
+                                           BREAKPOINT
 """
 
 from __future__ import annotations

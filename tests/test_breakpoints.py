@@ -150,7 +150,7 @@ class TestBreakpoints:
         assert len(r4["node_trace"]) == 3  # completes
 
     async def test_terminal_breakpoint_via_guard(self):
-        """R3-G3-1: terminal 断点通过 guard node 触发，无副作用重执行。"""
+        """terminal 断点通过 guard node 触发，无副作用重执行。"""
         exec_count = {"b": 0}
 
         async def counting_b(state):
@@ -194,7 +194,7 @@ class TestBreakpoints:
         assert exec_count["b"] == 1  # b NOT re-executed (guard handled it)
 
     async def test_disabled_node_no_phantom_retrigger(self):
-        """R2-G2-3 + R3-C3-1: disabled 节点不导致幽灵重触发。"""
+        """disabled 节点不导致幽灵重触发。"""
         graph = _build_graph(["a", "b", "c"])
         cfg = {"configurable": {"thread_id": "t-dis"}}
 
@@ -202,9 +202,7 @@ class TestBreakpoints:
             _init("t-dis", breakpoints=["a"], pipeline_config={"b": {"enabled": False}}),
             config=cfg,
         )
-        # R4-P2-C fix: trace has 2 entries at pause point, not 1.
-        # Flow: a executes → trace=[a]. b disabled → skip trace committed → trace=[a, b(skipped)].
-        # c starts → bp check: last_completed("a") in ["a"] → interrupt. c's output NOT committed.
+        # Flow: a executes, b skipped (trace=[a, b_skip]), c's bp check interrupts before execution.
         assert len(r1["node_trace"]) == 2
         assert r1["node_trace"][0]["node"] == "a"
         assert r1["node_trace"][1].get("skipped") is True

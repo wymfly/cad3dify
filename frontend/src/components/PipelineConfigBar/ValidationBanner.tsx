@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Typography } from 'antd';
+import { Typography, Spin } from 'antd';
+import { CheckCircleFilled, CloseCircleFilled, LoadingOutlined } from '@ant-design/icons';
 import { validatePipelineConfig } from '../../services/api.ts';
 import type { NodeLevelConfig, PipelineValidateResponse } from '../../types/pipeline.ts';
 
@@ -17,12 +18,9 @@ export default function ValidationBanner({ config, inputType }: ValidationBanner
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
-    // Clear previous timer
     if (timerRef.current) clearTimeout(timerRef.current);
 
-    // Debounce 300ms
     timerRef.current = setTimeout(() => {
-      // Cancel in-flight request
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -52,33 +50,34 @@ export default function ValidationBanner({ config, inputType }: ValidationBanner
 
   if (!result && !loading) return null;
 
-  if (loading) {
-    return <Alert type="info" message="验证中..." showIcon style={{ marginBottom: 8 }} />;
-  }
-
-  if (!result) return null;
-
-  if (result.valid) {
-    return (
-      <Alert
-        type="success"
-        showIcon
-        style={{ marginBottom: 8 }}
-        message={
-          <Text>
-            有效 — {result.node_count} 个节点，拓扑: {result.topology?.join(' → ')}
-          </Text>
-        }
-      />
-    );
-  }
-
   return (
-    <Alert
-      type="error"
-      showIcon
-      style={{ marginBottom: 8 }}
-      message={<Text>无效 — {result.error}</Text>}
-    />
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6,
+      padding: '4px 0',
+      fontSize: 12,
+    }}>
+      {loading ? (
+        <>
+          <Spin indicator={<LoadingOutlined style={{ fontSize: 12 }} />} size="small" />
+          <Text type="secondary" style={{ fontSize: 12 }}>验证中…</Text>
+        </>
+      ) : result?.valid ? (
+        <>
+          <CheckCircleFilled style={{ color: '#52c41a', fontSize: 12 }} />
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {result.node_count} 节点
+          </Text>
+        </>
+      ) : (
+        <>
+          <CloseCircleFilled style={{ color: '#ff4d4f', fontSize: 12 }} />
+          <Text type="danger" style={{ fontSize: 12 }}>
+            {result?.error ?? '无效配置'}
+          </Text>
+        </>
+      )}
+    </div>
   );
 }

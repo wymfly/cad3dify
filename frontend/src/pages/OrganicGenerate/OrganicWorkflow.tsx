@@ -194,6 +194,7 @@ export interface StartGenerateOptions {
   constraints: OrganicConstraints;
   qualityMode: string;
   provider: string;
+  pipelineConfig?: Record<string, unknown>;
 }
 
 export function useOrganicWorkflow() {
@@ -246,6 +247,7 @@ export function useOrganicWorkflow() {
         provider: opts.provider,
       };
       if (fileId) body.reference_image = fileId;
+      if (opts.pipelineConfig) body.pipeline_config = opts.pipelineConfig;
 
       const resp = await fetch('/api/v1/jobs', {
         method: 'POST',

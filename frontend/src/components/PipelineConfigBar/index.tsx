@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Card, Collapse } from 'antd';
+import { Typography, Divider } from 'antd';
 import PresetSelector from './PresetSelector.tsx';
 import CustomPanel from './CustomPanel.tsx';
 import ValidationBanner from './ValidationBanner.tsx';
+import { useDesignTokens } from '../../theme/useDesignTokens.ts';
 import { getNodePresets, getPipelineNodes, getStrategyAvailability } from '../../services/api.ts';
 import type { PipelineNodeDescriptor, NodeLevelConfig, NodeLevelPreset, StrategyAvailabilityMap } from '../../types/pipeline.ts';
+
+const { Text } = Typography;
 
 /** Default presets used when API is unavailable */
 const FALLBACK_PRESETS: NodeLevelPreset[] = [
@@ -59,11 +62,11 @@ export interface PipelineConfigBarProps {
 export { DEFAULT_CONFIG };
 
 export default function PipelineConfigBar({ value, onChange: onExternalChange, inputType }: PipelineConfigBarProps) {
+  const dt = useDesignTokens();
   const [internalConfig, setInternalConfig] = useState<NodeLevelPipelineConfig>(DEFAULT_CONFIG);
   const config = value ?? internalConfig;
   const [presets, setPresets] = useState<NodeLevelPreset[]>(FALLBACK_PRESETS);
   const [descriptors, setDescriptors] = useState<PipelineNodeDescriptor[]>([]);
-  const [customExpanded, setCustomExpanded] = useState(false);
   const [strategyAvailability, setStrategyAvailability] = useState<StrategyAvailabilityMap>({});
 
   useEffect(() => {
@@ -86,13 +89,11 @@ export default function PipelineConfigBar({ value, onChange: onExternalChange, i
   const handlePresetChange = useCallback((presetName: string) => {
     if (presetName === 'custom') {
       updateConfig({ ...config, preset: 'custom' });
-      setCustomExpanded(true);
     } else {
       const preset = presets.find((p) => p.name === presetName);
       if (preset) {
         updateConfig({ preset: presetName, nodeConfig: { ...preset.config } });
       }
-      setCustomExpanded(false);
     }
   }, [config, presets, updateConfig]);
 
@@ -101,35 +102,42 @@ export default function PipelineConfigBar({ value, onChange: onExternalChange, i
   }, [updateConfig]);
 
   return (
-    <Card size="small" title="管道配置" style={{ marginBottom: 16 }}>
+    <div style={{
+      padding: '10px 12px',
+      borderRadius: 6,
+      border: `1px solid ${dt.color.border}`,
+      backgroundColor: dt.color.surface2,
+    }}>
+      {/* Header: title + validation */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 8,
+      }}>
+        <Text strong style={{ fontSize: 13 }}>管道配置</Text>
+        <ValidationBanner config={config.nodeConfig} inputType={inputType} />
+      </div>
+
+      {/* Preset selector */}
       <PresetSelector
         presets={presets}
         value={config.preset}
         onChange={handlePresetChange}
       />
-      <ValidationBanner config={config.nodeConfig} inputType={inputType} />
+
+      {/* Node-level config — always visible when descriptors are loaded */}
       {descriptors.length > 0 && (
-        <Collapse
-          activeKey={customExpanded ? ['custom'] : []}
-          onChange={(keys) => setCustomExpanded(keys.includes('custom'))}
-          ghost
-          style={{ marginTop: 12 }}
-          items={[
-            {
-              key: 'custom',
-              label: '节点级配置',
-              children: (
-                <CustomPanel
-                  descriptors={descriptors}
-                  config={config.nodeConfig}
-                  onChange={handleCustomChange}
-                  strategyAvailability={strategyAvailability}
-                />
-              ),
-            },
-          ]}
-        />
+        <>
+          <Divider style={{ margin: '10px 0 6px' }} />
+          <CustomPanel
+            descriptors={descriptors}
+            config={config.nodeConfig}
+            onChange={handleCustomChange}
+            strategyAvailability={strategyAvailability}
+          />
+        </>
       )}
-    </Card>
+    </div>
   );
 }

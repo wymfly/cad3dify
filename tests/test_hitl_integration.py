@@ -99,13 +99,18 @@ def _mock_graph_analysis():
 def client():
     from backend.main import app
 
-    # TestClient 不经过 lifespan，需手动初始化 cad_graph
+    # TestClient 不经过 lifespan，需手动初始化 cad_graph。
+    # 使用 MemorySaver 避免 AsyncSqliteSaver 的 event loop 绑定问题。
     import asyncio
+
+    from langgraph.checkpoint.memory import MemorySaver
 
     from backend.graph import get_compiled_graph
 
     loop = asyncio.get_event_loop()
-    app.state.cad_graph = loop.run_until_complete(get_compiled_graph())
+    app.state.cad_graph = loop.run_until_complete(
+        get_compiled_graph(checkpointer=MemorySaver())
+    )
 
     return TestClient(app)
 

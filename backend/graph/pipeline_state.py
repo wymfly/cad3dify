@@ -57,7 +57,7 @@ class PipelineState(TypedDict, total=False):
     token_stats: dict | None
     corrections: list[dict] | None
 
-    # ── Debug ──
+    # ── Breakpoints ──
     breakpoints: list[str] | None
 
     # ── Status & error ──

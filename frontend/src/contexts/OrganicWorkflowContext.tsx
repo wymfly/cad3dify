@@ -3,6 +3,7 @@ import {
   useOrganicWorkflow,
   type StartGenerateOptions,
 } from '../pages/OrganicGenerate/OrganicWorkflow.tsx';
+import { DEFAULT_CONFIG, type NodeLevelPipelineConfig } from '../components/PipelineConfigBar/index.tsx';
 import type {
   OrganicWorkflowState,
   OrganicConstraints,
@@ -21,6 +22,8 @@ interface OrganicWorkflowContextValue {
   setQualityMode: (m: QualityMode) => void;
   provider: ProviderPreference;
   setProvider: (p: ProviderPreference) => void;
+  pipelineConfig: NodeLevelPipelineConfig;
+  setPipelineConfig: (c: NodeLevelPipelineConfig) => void;
 }
 
 const OrganicWorkflowContext = createContext<OrganicWorkflowContextValue | null>(null);
@@ -35,6 +38,7 @@ export function OrganicWorkflowProvider({ children }: { children: ReactNode }) {
   const [constraints, setConstraints] = useState<OrganicConstraints>(DEFAULT_CONSTRAINTS);
   const [qualityMode, setQualityMode] = useState<QualityMode>('standard');
   const [provider, setProvider] = useState<ProviderPreference>('auto');
+  const [pipelineConfig, setPipelineConfig] = useState<NodeLevelPipelineConfig>(DEFAULT_CONFIG);
 
   return (
     <OrganicWorkflowContext.Provider
@@ -49,6 +53,8 @@ export function OrganicWorkflowProvider({ children }: { children: ReactNode }) {
         setQualityMode,
         provider,
         setProvider,
+        pipelineConfig,
+        setPipelineConfig,
       }}
     >
       {children}

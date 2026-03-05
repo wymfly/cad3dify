@@ -59,8 +59,9 @@ def _summarize_outputs(diff: dict[str, Any], max_len: int = 500) -> dict[str, An
 def _last_completed_node(node_trace: list[dict[str, Any]]) -> str | None:
     """Return the name of the last non-skipped node in trace.
 
-    R3-C3-1 fix: skip entries with {"skipped": True} to avoid
-    disabled nodes causing breakpoint misses.
+    Skips entries with ``{"skipped": True}`` so that a disabled node's
+    trace entry does not become "last completed" (its name would not
+    match the user's breakpoints list, causing breakpoint misses).
     """
     for entry in reversed(node_trace):
         if not entry.get("skipped"):
@@ -112,7 +113,9 @@ class PipelineBuilder:
         if interceptor_registry is not None:
             self._insert_interceptor_edges(workflow, resolved, interceptor_registry)
 
-        # Terminal nodes → guard → END (R3 guard node architecture)
+        # Terminal nodes → guard → END (guard handles breakpoints after
+        # the last pipeline node; without it, resuming would re-execute
+        # the terminal node because LangGraph replays the interrupt() node)
         guard = self._make_bp_guard()
         for desc in resolved.ordered_nodes:
             if desc.is_terminal:
@@ -129,7 +132,7 @@ class PipelineBuilder:
         async def wrapped(state: dict[str, Any]) -> dict[str, Any]:
             job_id = state.get("job_id", "unknown")
 
-            # ── Disabled check FIRST (R2-G2-3: before breakpoint check) ──
+            # ── Disabled check FIRST (before breakpoint check) ──
             node_cfg = (state.get("pipeline_config") or {}).get(desc.name, {})
             if not node_cfg.get("enabled", True):
                 logger.info("Node %s skipped (disabled)", desc.name)
@@ -138,7 +141,7 @@ class PipelineBuilder:
                     "node": desc.name,
                     "reason": "disabled",
                 })
-                # R2-G2-3: write skip trace to advance node_trace
+                # Write skip trace entry so node_trace advances past the disabled node
                 return {"node_trace": [{
                     "node": desc.name,
                     "skipped": True,
@@ -146,7 +149,8 @@ class PipelineBuilder:
                     "assets_produced": [],
                 }]}
 
-            # ── Pre-execution breakpoint (OUTSIDE try/except) ──
+            # ── Pre-execution breakpoint (OUTSIDE try/except to avoid
+            #    interrupt being caught by the node error handler) ──
             bp_list = state.get("breakpoints") or []
             breakpoint_update: dict[str, Any] = {}
             if bp_list:
@@ -236,7 +240,7 @@ class PipelineBuilder:
                         "error": str(exc),
                         "non_fatal": True,
                     }]}
-                    # R3-G3-3 fix: preserve breakpoint state update
+                    # Preserve breakpoint state update from pre-execution phase
                     if breakpoint_update:
                         diff.update(breakpoint_update)
                     return diff
@@ -275,7 +279,7 @@ class PipelineBuilder:
                     action = resume_val.get("action")
                     if action == "run":
                         return {"breakpoints": []}
-                    # R4-P2-A: "step" at terminal = continue (no next node).
+                    # "step" at terminal is a no-op (no next node to step to).
                     # Guard returns {} → graph proceeds to END normally.
             return {}
 
@@ -533,11 +537,17 @@ class PipelineBuilder:
 
 async def get_compiled_graph_new(
     pipeline_config: dict[str, dict] | None = None,
+    *,
+    checkpointer: Any | None = None,
 ):
     """Compile graph with dynamic node discovery + dependency resolution.
 
     Unlike the legacy builder, this registers ALL nodes and uses
     conditional edges for input_type routing at runtime.
+
+    Args:
+        checkpointer: Optional pre-built checkpointer. When provided,
+            skips SQLite initialization (useful for tests with MemorySaver).
     """
     from backend.graph.discovery import discover_nodes
     from backend.graph.registry import registry
@@ -553,22 +563,25 @@ async def get_compiled_graph_new(
     graph = builder.build(resolved, interceptor_registry=default_registry)
 
     # Checkpointer
-    try:
-        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    if checkpointer is None:
+        try:
+            import aiosqlite
+            from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-        db_path = Path("backend/data/checkpoints.db")
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        checkpointer = AsyncSqliteSaver.from_conn_string(str(db_path))
-        await checkpointer.setup()
-        logger.info("Using persistent SQLite checkpointer at %s", db_path)
-    except ImportError:
-        from langgraph.checkpoint.memory import MemorySaver
-        checkpointer = MemorySaver()
-        logger.warning("Using MemorySaver (state lost on restart)")
-    except Exception as exc:
-        from langgraph.checkpoint.memory import MemorySaver
-        checkpointer = MemorySaver()
-        logger.warning("SQLite checkpointer failed (%s), using MemorySaver", exc)
+            db_path = Path("backend/data/checkpoints.db")
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = await aiosqlite.connect(str(db_path))
+            checkpointer = AsyncSqliteSaver(conn)
+            await checkpointer.setup()
+            logger.info("Using persistent SQLite checkpointer at %s", db_path)
+        except ImportError:
+            from langgraph.checkpoint.memory import MemorySaver
+            checkpointer = MemorySaver()
+            logger.warning("Using MemorySaver (state lost on restart)")
+        except Exception as exc:
+            from langgraph.checkpoint.memory import MemorySaver
+            checkpointer = MemorySaver()
+            logger.warning("SQLite checkpointer failed (%s), using MemorySaver", exc)
 
     compiled = graph.compile(
         checkpointer=checkpointer,

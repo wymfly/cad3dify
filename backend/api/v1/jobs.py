@@ -305,7 +305,8 @@ async def create_job_endpoint(body: CreateJobRequest, request: Request) -> Event
 
     if body.breakpoints:
         initial_state["breakpoints"] = body.breakpoints
-        # R4-P1-D: breakpoint 模式需要 DB 持久化（resume 端点依赖 get_job/update_job）
+        # Breakpoint 模式提前创建 DB 记录（resume 端点依赖 get_job/update_job）。
+        # create_job_node 有幂等检查（see lifecycle.py）避免重复创建。
         await create_job(job_id, input_type=body.input_type, input_text=input_text or "")
 
     logger_api = logging.getLogger(__name__)
@@ -319,7 +320,8 @@ async def create_job_endpoint(body: CreateJobRequest, request: Request) -> Event
                     name = event["name"]
                     data = event["data"]
                     emit_event(job_id, name, data)
-                    # R4-P1-C: update DB BEFORE yield — client disconnect must not skip status update
+                    # Update DB BEFORE yield — once we yield the SSE event, the client
+                    # may disconnect (asyncio.CancelledError), skipping any code after yield
                     if name == "node.breakpoint":
                         try:
                             await update_job(job_id, status=JobStatus.BREAKPOINT)
@@ -384,7 +386,11 @@ async def create_drawing_job(
     except (ValueError, TypeError):
         _raw_cfg = {}
     _bp_raw = _raw_cfg.get("_breakpoints") if isinstance(_raw_cfg, dict) else None
-    _bp = _bp_raw if isinstance(_bp_raw, list) else None
+    _bp = (
+        _bp_raw
+        if isinstance(_bp_raw, list) and all(isinstance(x, str) for x in _bp_raw)
+        else None
+    )
 
     initial_state: dict[str, Any] = {
         "job_id": job_id,
@@ -400,7 +406,7 @@ async def create_drawing_job(
 
     if _bp:
         initial_state["breakpoints"] = _bp
-        # R4-P1-D: breakpoint 模式需要 DB 持久化
+        # Breakpoint 模式提前创建 DB 记录（see lifecycle.py 幂等检查）
         await create_job(job_id, input_type="drawing", input_text="")
 
     logger_api = logging.getLogger(__name__)
@@ -413,7 +419,8 @@ async def create_drawing_job(
                     name = event["name"]
                     data = event["data"]
                     emit_event(job_id, name, data)
-                    # R4-P1-C: update DB BEFORE yield — client disconnect must not skip status update
+                    # Update DB BEFORE yield — once we yield the SSE event, the client
+                    # may disconnect (asyncio.CancelledError), skipping any code after yield
                     if name == "node.breakpoint":
                         try:
                             await update_job(job_id, status=JobStatus.BREAKPOINT)
@@ -786,7 +793,7 @@ async def resume_job(job_id: str, body: ResumeRequest, request: Request) -> Even
             expected="breakpoint",
         )
 
-    # Transition out of breakpoint (R2-C2-5)
+    # Transition out of breakpoint
     await update_job(job_id, status=JobStatus.GENERATING)
 
     cad_graph = request.app.state.cad_graph
@@ -795,7 +802,7 @@ async def resume_job(job_id: str, body: ResumeRequest, request: Request) -> Even
     logger_api = logging.getLogger(__name__)
 
     async def event_stream() -> AsyncGenerator[dict[str, str], None]:
-        # R4-P1-A: LangGraph re-executes the interrupted node on resume.
+        # LangGraph re-executes the node that called interrupt() on resume.
         # The wrapper's _safe_dispatch("node.breakpoint") fires again (replay).
         # Skip the first node.breakpoint event to avoid:
         # 1) sending duplicate SSE to client
@@ -812,14 +819,15 @@ async def resume_job(job_id: str, body: ResumeRequest, request: Request) -> Even
                     name = event["name"]
                     data = event["data"]
 
-                    # R4-P1-A: skip replayed breakpoint event
+                    # Skip replayed breakpoint event from interrupt() node re-execution
                     if name == "node.breakpoint" and not bp_replay_consumed:
                         bp_replay_consumed = True
                         continue
 
                     emit_event(job_id, name, data)
 
-                    # R4-P1-C: update DB BEFORE yield — client disconnect must not skip status update
+                    # Update DB BEFORE yield — once we yield the SSE event, the client
+                    # may disconnect (asyncio.CancelledError), skipping any code after yield
                     if name == "node.breakpoint":
                         try:
                             await update_job(job_id, status=JobStatus.BREAKPOINT)
@@ -828,7 +836,7 @@ async def resume_job(job_id: str, body: ResumeRequest, request: Request) -> Even
 
                     yield _sse(name, data)
 
-            # R4-P1-A: stream completed normally — update final status
+            # Stream completed normally — update final status
             try:
                 current = await get_job(job_id)
                 if current and current.status == JobStatus.GENERATING:
@@ -837,8 +845,9 @@ async def resume_job(job_id: str, body: ResumeRequest, request: Request) -> Even
                 logger_api.warning("Failed to update job %s to completed", job_id)
 
         except BaseException:
-            # R3-C3-6 fix: rollback status on stream failure
-            # BaseException catches asyncio.CancelledError (client disconnect)
+            # Restore to BREAKPOINT on stream failure (resume context only).
+            # BaseException catches asyncio.CancelledError (client disconnect).
+            # This reverts the GENERATING status set at resume entry.
             try:
                 await update_job(job_id, status=JobStatus.BREAKPOINT)
             except Exception:

@@ -13,6 +13,7 @@ import OrganicDownloadButtons from '../OrganicGenerate/OrganicDownloadButtons.ts
 import PipelineProgress from '../../components/PipelineProgress/index.tsx';
 import OrganicWorkflowProgress from '../OrganicGenerate/OrganicWorkflow.tsx';
 import PrintReport from '../../components/PrintReport/index.tsx';
+import PipelineConfigBar from '../../components/PipelineConfigBar/index.tsx';
 import Viewer3D from '../../components/Viewer3D/index.tsx';
 import type { WorkflowPhase } from '../../types/generate.ts';
 
@@ -47,6 +48,8 @@ export default function OrganicWorkbench() {
     setQualityMode,
     provider,
     setProvider,
+    pipelineConfig,
+    setPipelineConfig,
   } = useOrganicWorkflowContext();
 
   const [prompt, setPrompt] = useState('');
@@ -64,14 +67,18 @@ export default function OrganicWorkbench() {
 
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() && !imageFile) return;
+    const configPayload = pipelineConfig.preset !== 'custom'
+      ? { preset: pipelineConfig.preset }
+      : pipelineConfig.nodeConfig;
     await startGenerate({
       prompt: prompt.trim(),
       imageFile,
       constraints,
       qualityMode,
       provider,
+      pipelineConfig: configPayload,
     });
-  }, [prompt, imageFile, startGenerate, constraints, qualityMode, provider]);
+  }, [prompt, imageFile, startGenerate, constraints, qualityMode, provider, pipelineConfig]);
 
   const handleReset = useCallback(() => {
     reset();
@@ -274,18 +281,25 @@ export default function OrganicWorkbench() {
       case 'idle':
         return (
           <div>
-            <Title level={5}>创意雕塑</Title>
-            <Text type="secondary" style={{ fontSize: 13 }}>
-              输入文本描述或上传参考图片，AI 将生成 3D 网格模型。
-              支持添加工程约束（尺寸限制、孔位、平底面等）。
-            </Text>
+            <PipelineConfigBar
+              value={pipelineConfig}
+              onChange={setPipelineConfig}
+              inputType="organic"
+            />
             <div style={{ marginTop: 16 }}>
-              <Title level={5}>示例</Title>
-              <ul style={{ paddingLeft: 16, color: dt.color.textSecondary, fontSize: 13 }}>
-                <li>流线型花瓶，底部宽顶部窄</li>
-                <li>几何风格的桌面摆件</li>
-                <li>仿生学结构灯罩</li>
-              </ul>
+              <Title level={5}>创意雕塑</Title>
+              <Text type="secondary" style={{ fontSize: 13 }}>
+                输入文本描述或上传参考图片，AI 将生成 3D 网格模型。
+                支持添加工程约束（尺寸限制、孔位、平底面等）。
+              </Text>
+              <div style={{ marginTop: 12 }}>
+                <Title level={5}>示例</Title>
+                <ul style={{ paddingLeft: 16, color: dt.color.textSecondary, fontSize: 13 }}>
+                  <li>流线型花瓶，底部宽顶部窄</li>
+                  <li>几何风格的桌面摆件</li>
+                  <li>仿生学结构灯罩</li>
+                </ul>
+              </div>
             </div>
           </div>
         );

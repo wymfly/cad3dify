@@ -90,12 +90,18 @@ def client() -> TestClient:
     """创建 FastAPI TestClient 实例（含 LangGraph 初始化）。"""
     from backend.main import app
 
-    # TestClient 不经过 lifespan，需手动初始化 cad_graph
+    # TestClient 不经过 lifespan，需手动初始化 cad_graph。
+    # 使用 MemorySaver 避免 AsyncSqliteSaver 的 event loop 绑定问题
+    # （TestClient 在不同 event loop 中处理请求）。
     import asyncio
+
+    from langgraph.checkpoint.memory import MemorySaver
 
     from backend.graph import get_compiled_graph
 
     loop = asyncio.get_event_loop()
-    app.state.cad_graph = loop.run_until_complete(get_compiled_graph())
+    app.state.cad_graph = loop.run_until_complete(
+        get_compiled_graph(checkpointer=MemorySaver())
+    )
 
     return TestClient(app)
