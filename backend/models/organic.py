@@ -64,7 +64,7 @@ class OrganicGenerateRequest(BaseModel):
     reference_image: str | None = None
     constraints: OrganicConstraints = Field(default_factory=OrganicConstraints)
     quality_mode: Literal["draft", "standard", "high"] = "standard"
-    provider: Literal["auto", "tripo3d", "hunyuan3d"] = "auto"
+    provider: Literal["auto", "triposg", "trellis2", "hunyuan3d"] = "auto"
 
 
 # ---------------------------------------------------------------------------

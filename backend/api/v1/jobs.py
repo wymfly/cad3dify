@@ -486,9 +486,8 @@ _MIME_TO_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"
 
 @router.get("/organic-providers")
 async def get_organic_providers() -> dict[str, Any]:
-    """Check health of available mesh generation providers."""
+    """Check health of available local mesh generation endpoints."""
     from backend.config import Settings
-    from backend.infra.mesh_providers import HunyuanProvider, TripoProvider
 
     settings = Settings()
     if not settings.organic_enabled:
@@ -498,28 +497,25 @@ async def get_organic_providers() -> dict[str, Any]:
             message="Organic engine is disabled.",
         )
 
-    output_dir = Path("outputs") / "organic"
-    tripo = TripoProvider(api_key=settings.tripo3d_api_key, output_dir=output_dir)
-    hunyuan = HunyuanProvider(api_key=settings.hunyuan3d_api_key, output_dir=output_dir)
+    import httpx
 
-    tripo_ok, hunyuan_ok = await asyncio.gather(
-        tripo.check_health(),
-        hunyuan.check_health(),
-    )
-
-    return {
-        "providers": {
-            "tripo3d": {
-                "available": tripo_ok,
-                "configured": bool(settings.tripo3d_api_key),
-            },
-            "hunyuan3d": {
-                "available": hunyuan_ok,
-                "configured": bool(settings.hunyuan3d_api_key),
-            },
-        },
-        "default_provider": settings.organic_default_provider,
+    providers = {}
+    endpoints = {
+        "triposg": getattr(settings, "triposg_endpoint", None),
+        "trellis2": getattr(settings, "trellis2_endpoint", None),
+        "hunyuan3d": getattr(settings, "hunyuan3d_endpoint", None),
     }
+    for name, endpoint in endpoints.items():
+        if not endpoint:
+            providers[name] = {"available": False, "configured": False}
+            continue
+        try:
+            resp = httpx.get(f"{endpoint.rstrip('/')}/health", timeout=5)
+            providers[name] = {"available": resp.status_code == 200, "configured": True}
+        except Exception:
+            providers[name] = {"available": False, "configured": True}
+
+    return {"providers": providers, "default_provider": "triposg"}
 
 
 # ---------------------------------------------------------------------------

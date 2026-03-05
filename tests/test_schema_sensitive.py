@@ -114,12 +114,11 @@ class TestNonSensitiveUnchanged:
 class TestXScopeAnnotation:
     """Fields annotated with x-scope appear in config_schema."""
 
-    def test_generate_raw_mesh_api_key_has_system_scope(self):
+    def test_generate_raw_mesh_endpoints_have_system_scope(self):
         from backend.graph.configs.generate_raw_mesh import GenerateRawMeshConfig
         schema = GenerateRawMeshConfig.model_json_schema()
-        api_key_prop = schema["properties"]["hunyuan3d_api_key"]
-        assert api_key_prop.get("x-scope") == "system"
-        assert api_key_prop.get("x-sensitive") is True
+        for field in ("triposg_endpoint", "trellis2_endpoint", "hunyuan3d_endpoint"):
+            assert schema["properties"][field].get("x-scope") == "system", f"{field} missing x-scope"
 
     def test_generate_raw_mesh_timeout_no_scope(self):
         from backend.graph.configs.generate_raw_mesh import GenerateRawMeshConfig

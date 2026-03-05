@@ -53,7 +53,7 @@ class OrganicJobModel(Base):
     # Valid: created, analyzing, generating, post_processing, completed, failed
     status: Mapped[str] = mapped_column(String(32), default="created")
     prompt: Mapped[str] = mapped_column(Text, default="")
-    provider: Mapped[str] = mapped_column(String(32), default="auto")  # auto | tripo3d | hunyuan3d
+    provider: Mapped[str] = mapped_column(String(32), default="auto")  # auto | triposg | trellis2 | hunyuan3d
     quality_mode: Mapped[str] = mapped_column(String(16), default="standard")  # draft | standard | high
     progress: Mapped[float] = mapped_column(Float, default=0.0)
     message: Mapped[str] = mapped_column(Text, default="")

@@ -36,7 +36,7 @@ class CadJobState(TypedDict, total=False):
 
     # ── Organic outputs ──
     organic_spec: dict | None            # OrganicSpec.model_dump()
-    organic_provider: str | None         # "auto" | "tripo3d" | "hunyuan3d"
+    organic_provider: str | None         # "auto" | "triposg" | "trellis2" | "hunyuan3d"
     organic_quality_mode: str | None     # "draft" | "standard" | "high"
     organic_reference_image: str | None  # uploaded file_id
     organic_constraints: dict | None     # {bounding_box, engineering_cuts}

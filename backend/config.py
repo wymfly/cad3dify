@@ -22,9 +22,9 @@ class Settings(BaseSettings):
 
     # Organic engine
     organic_enabled: bool = True
-    tripo3d_api_key: str | None = None
-    hunyuan3d_api_key: str | None = None
-    organic_default_provider: str = "auto"  # "auto" | "tripo3d" | "hunyuan3d"
+    triposg_endpoint: str | None = None
+    trellis2_endpoint: str | None = None
+    hunyuan3d_endpoint: str | None = None
     organic_upload_max_mb: int = 10
 
     model_config = {"env_file": ".env", "extra": "ignore"}

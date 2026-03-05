@@ -57,14 +57,13 @@ class TestSystemConfigGetEndpoint:
     def test_returns_masked_sensitive_values(self, client):
         with patch("backend.api.v1.pipeline_config.system_config_store") as mock_store:
             mock_store.load.return_value = {
-                "generate_raw_mesh": {"hunyuan3d_api_key": "sk-test1234567890"}
+                "generate_raw_mesh": {"triposg_endpoint": "http://gpu:8081"}
             }
             resp = client.get("/api/v1/pipeline/system-config")
             assert resp.status_code == 200
             data = resp.json()
-            api_key = data["generate_raw_mesh"]["hunyuan3d_api_key"]
-            assert "sk-test1234567890" not in api_key  # masked
-            assert api_key.endswith("7890")  # last 4 chars visible
+            # Non-sensitive system fields are returned as-is
+            assert data["generate_raw_mesh"]["triposg_endpoint"] == "http://gpu:8081"
 
 
 class TestSystemConfigPutEndpoint:

@@ -1,0 +1,42 @@
+[P1] 1. `generate_supports` delegation is not wired into actual slicing behavior, so support settings never affect G-code.  
+Refs: plan Task 8 config addition and `support_config` write [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:1784), [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:1846).  
+Current slicer code only uses `support_material` flag and never reads `support_config` / `support_type` / `support_density`: [slice_to_gcode.py](/Users/wangym/workspace/agents/cadpilot/backend/graph/nodes/slice_to_gcode.py:43), [prusaslicer.py](/Users/wangym/workspace/agents/cadpilot/backend/graph/strategies/slice/prusaslicer.py:74).
+
+[P1] 2. `generate_supports` has no `config_model`, so runtime config for `support_type`/`support_density` is silently ignored.  
+Ref: node registration omits config model [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:1810); base config only has `enabled/strategy` [base.py](/Users/wangym/workspace/agents/cadpilot/backend/graph/configs/base.py:6).
+
+[P1] 3. Dependency ordering is broken for support flow: no resolver edge from `generate_supports` to `slice_to_gcode`, so execution can race or bypass support config entirely.  
+Refs: plan topology claims consumption [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:2091), but `slice_to_gcode.requires` does not include `support_config` [slice_to_gcode.py](/Users/wangym/workspace/agents/cadpilot/backend/graph/nodes/slice_to_gcode.py:31); resolver builds edges only from `requires`/`produces` [resolver.py](/Users/wangym/workspace/agents/cadpilot/backend/graph/resolver.py:111).
+
+[P1] 4. Phase 3 “optimization” outputs are not integrated into manufacturing path: `slice_to_gcode` still selects `final_mesh|scaled_mesh|watertight_mesh`, ignoring `oriented_mesh` and `lattice_mesh`.  
+Refs: plan creates `oriented_mesh`/`lattice_mesh` [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:2088); slicer input priority [slice_to_gcode.py](/Users/wangym/workspace/agents/cadpilot/backend/graph/nodes/slice_to_gcode.py:25).
+
+[P1] 5. Strategy/config contract mismatch: orientation config allows `neural`, but node registers only `basic/scipy`; selecting `neural` will fail at runtime.  
+Refs: config literal includes `neural` [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:144), node strategies only `basic/scipy` [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:603).  
+This is inconsistent with Phase 2 pattern where config strategies and node strategies are aligned (e.g. mesh_healer) [mesh_healer.py](/Users/wangym/workspace/agents/cadpilot/backend/graph/nodes/mesh_healer.py:27), [mesh_healer.py](/Users/wangym/workspace/agents/cadpilot/backend/graph/configs/mesh_healer.py:19).
+
+[P1] 6. Same mismatch exists for thermal: config includes `neural/auto`, node only registers `rules/gradient`; `strategy="neural"` is a runtime error path.  
+Refs: config strategy literal [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:1209), node strategies [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:1660).
+
+[P1] 7. TPMS implementation contradicts the stated architecture and likely degrades to silent passthrough: doc says manifold3d boolean + shell preservation, code uses `trimesh.intersection` and never applies shell logic.  
+Refs: stated flow [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:817), actual intersection/silent return [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:929), unused `shell_thickness` [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:786).
+
+[P1] 8. Thermal rules as written conflict with expected behavior and will misclassify simple geometries (cube likely not “low”).  
+Reason: overhang logic counts full bottom face (`>10%` threshold) and bottom-area logic overcounts any face touching `z_min`.  
+Refs: expected low-risk cube test [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:1166), overhang rule [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:1293), bottom mask rule [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:1352).
+
+[P2] 9. Asset/data contract inconsistency: nodes declare `produces=["thermal_report"]` / `["support_config"]` but only call `ctx.put_data`, not `ctx.put_asset`. This breaks future dependency assumptions.  
+Refs: thermal node produces [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:1657), write path [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:1423); supports produces [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:1814), write path [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:1846).
+
+[P2] 10. Orientation scoring is not scale-invariant (`mm² + mm + normalized*100`), so ranking can be dominated by part size rather than printability tradeoffs.  
+Ref: score formula [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:223).
+
+[P2] 11. TPMS wall thickness math is dimensionally inconsistent (`level = wall_thickness*0.5` in field-value space) and lacks level-range guards for marching cubes.  
+Ref: level computation [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:906).
+
+[P2] 12. Test plan misses critical edge cases and has at least one vacuous test.  
+- Missing: pipeline-order assertion that `generate_supports` precedes slicer, and CLI assertion that support params are consumed.  
+- Missing: TPMS failures (empty mesh, out-of-range level, non-manifold input, boolean backend absence).  
+- Missing: thermal degenerate/flat/empty mesh cases and orientation `auto`/fallback paths.  
+- Vacuous: `test_node_no_input_skips` contains no assertions/execute call.  
+Refs: weak integration focus [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:1916), vacuous test block [2026-03-03-phase3-optimization-nodes-plan.md](/Users/wangym/workspace/agents/cadpilot/docs/plans/2026-03-03-phase3-optimization-nodes-plan.md:558).
